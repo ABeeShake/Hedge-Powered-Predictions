@@ -2,153 +2,213 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import lightning as L
 
 from torchdyn.core import NeuralODE
 from torchdyn.nn import DataControl, DepthCat
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from ExpMethods.utils import *
 
-
-class NODE(nn.Module):
+class NODEForecaster(L.LightningModule):
     
-    def __init__(self, f, device, **kwargs):
+    def __init__(self, model, horizon,**kwargs):
+        
+        from_transfer = kwargs.get("from_transfer", False)
+        transfer_path = kwargs.get("transfer_path", None)
         
         super().__init__()
-        self.device = device
-        self.model = NeuralODE(f, **kwargs).to(device)
+        self.model = model
+        self.t_span = torch.linspace(0,horizon, horizon+1)
         
-    def configure_optimizer(self, **kwargs):
-
-        lr = kwarg_parse(kwargs, "lr",1e-3)
-        weight_decay = kwarg_parse(kwargs, "weight_decay",1e-1)
-        
-        return optim.Adam(self.model.parameters(), lr = lr, weight_decay = weight_decay)
-    
-    def train_step(self, x_train, **kwargs):
-        
-        b = kwarg_parse(kwargs, "batch_size", 10)
-        h = kwarg_parse(kwargs, "horizon", 1)
-        
-        x,y = self._get_batch(x_train, batch_size = b, horizon = h)
-        t_span = torch.linspace(0,h,h+1)
+        if from_transfer:
             
-        y_hat = self.model(x, t_span)[1][-1,:,-1]
-        
-        # print(f"y_hat shape: {y_hat.shape}")
-            
-        l = nn.functional.mse_loss(y,y_hat)
-        
-        return l
+            self.model = self.model.load_state_dict(
+                torch.load(
+                    transfer_path, 
+                    weights_only=True
+                    )
+                    )
     
-    def predict(self, x, horizon = 1):
+    def configure_optimizers(self, **kwargs):
+        
+        lr = kwargs.get("lr", 1e-3)
+        weight_decay = kwargs.get("weight_decay", 1e-1)
+        
+        return torch.optim.Adam(
+        self.model.parameters(),
+        lr = lr, 
+        weight_decay = weight_decay
+        )
+        
+    def training_step(self, batch, batch_idx):
+        
+        x,y = batch
         
         if len(x.shape) == 1:
             x = x.unsqueeze(0)
         
-        t_span = torch.linspace(0,horizon,horizon+1)
-        y_hat = self.model(x,t_span)[1][-1,:,-1]
+        y_hat = self.model(x,self.t_span)[1][-1,:,-1]
         
-        return y_hat
+        loss = torch.nn.functional.mse_loss(y,y_hat)
+        
+        self.log("loss", loss, prog_bar = True)
+        return {"loss":loss}
     
-    def _get_batch(self,x_train,**kwargs):
+    def forward(self, x, *args):
         
-        batch_size = kwarg_parse(kwargs, "batch_size", 10)
+        t_eval = args[0] if args else self.t_span
         
-        m = len(x_train)
-        b = min(batch_size, m-1)
-        
-        #tradeoff between horzion and batch size:
-        #choose maximum horizon that provides batch size >= 10
-        
-        h = kwarg_parse(kwargs,"horizon",(m-b))
-        
-        h = min(h, m - b)
-        
-        xs = x_train[:-h]
-        ys = x_train[h:,-1]
-        
-        s = torch.from_numpy(
-            np.random.choice(
-                np.arange(
-                    m-h, 
-                    dtype = np.int64
-                    ),
-                    b,
-                    replace = False
-                    ))
-        
-        return xs, ys
-
-
-class LSTM(nn.Module):
+        return self.model(x, t_eval)
     
-    def __init__(self, f, device, **kwargs):
+
+class NODE(nn.Module):
+    
+    def __init__(self, f, horizon, **kwargs):
         
         super().__init__()
-        self.device = device
-        self.model = NeuralODE(f, **kwargs).to(device)
+        self.model = NeuralODE(f,**kwargs)
+        self.t_span = torch.linspace(0,horizon,horizon+1)
         
-    def configure_optimizer(self, **kwargs):
+    def forward(self, x, *args):
+        
+        t_eval = args[0] if args else self.t_span
+        
+        if len(x.shape) == 1:
+            x = x.unsqueeze(0)
+        elif len(x.shape) == 3:
+            x = x[:,0,:]
+        
+        return self.model(x, t_eval)
 
-        lr = kwarg_parse(kwargs, "lr",1e-3)
-        weight_decay = kwarg_parse(kwargs, "weight_decay",1e-1)
-        
-        return optim.SGD(self.model.parameters(), lr = lr, weight_decay = weight_decay)
+
+class LSTMForecaster(L.LightningModule):
     
-    def train_step(self, x_train, **kwargs):
+    def __init__(self, lstm, horizon, **kwargs):
         
-        b = kwarg_parse(kwargs, "batch_size", 10)
-        h = kwarg_parse(kwargs, "horizon", 1)
+        super().__init__()
+        self.model = lstm
+        self.h = horizon
         
-        x,y = self._get_batch(x_train,batch_size = b, horizon = h)
+        from_transfer = kwargs.get("from_transfer", False)
+        transfer_path = kwargs.get("transfer_path", None)
+        
+        if from_transfer:
             
-        y_hat = self.model(x)
+            self.model = self.model.load_state_dict(
+                torch.load(
+                    transfer_path, 
+                    weights_only=True
+                    )
+                    )
         
-        # print(f"y_hat shape: {y_hat.shape}")
+    def forward(self, x, **kwargs):
+        
+        h0 = kwargs.get("h", torch.zeros(
+            self.model.n_layers, 
+            x.size(0),
+            self.model.hidden_dim))
+        c0 = kwargs.get("c", torch.zeros(
+            self.model.n_layers, 
+            x.size(0),
+            self.model.hidden_dim))
             
-        l = nn.functional.mse_loss(y,y_hat)
-        
-        return l
+        return self.model(x, h = h0, c = c0)
     
-    def predict(self, x, horizon = 1):
+    def configure_optimizers(self, **kwargs):
         
-        x = 
+        lr = kwargs.get("lr", 1e-3)
+        weight_decay = kwargs.get("weight_decay", 1e-1)
         
-        t_span = torch.linspace(0,horizon,horizon+1)
-        y_hat = self.model(x,t_span)[1][-1,:,-1]
-        
-        return y_hat
+        return torch.optim.SGD(
+        self.model.parameters(),
+        lr = lr, 
+        weight_decay = weight_decay
+        )
     
-    def _get_batch(self,x_train,**kwargs):
+    def training_step(self, batch, batch_idx):
         
-        batch_size = kwarg_parse(kwargs, "batch_size", 10)
+        x,y = batch
         
-        m,d = x_train.shape
-        b = min(batch_size, m-1)
-        
-        #tradeoff between horzion and batch size:
-        #choose maximum horizon that provides batch size >= 10
-        
-        h = kwarg_parse(kwargs,"horizon",(m-b))
-        
-        h = min(h, m - b)
-        
-        x_batch = torch.zeros(b,h,d)
-        y_batch = torch.zeros(b,h,d)
-        
-        s = torch.from_numpy(
-            np.random.choice(
-                np.arange(
-                    m-h-1, 
-                    dtype = np.int64
-                    ),
-                    b,
-                    replace = False
-                    ))
-                    
-        for i in range(b):
+        h = torch.zeros(
+            self.model.n_layers, 
+            x.size(0),
+            self.model.hidden_dim)
             
-            x_batch[i,:,:] = x_train[s[i]:s[i]+h,:]
-            y_batch[i,:,:] = x_train[s[i]+1:s[i]+h+1,:]
+        c = torch.zeros(
+            self.model.n_layers, 
+            x.size(0),
+            self.model.hidden_dim)
         
-        return x_batch, y_batch
+        y_hat, (h, c) = self.model(x, h=h, c=c)
+        
+        loss = nn.functional.mse_loss(y,y_hat)
+        
+        self.log("loss", loss, prog_bar = True)
+        return {"loss": loss}
+    
+    
+class LSTM(nn.Module):
+    
+    def __init__(self, input_dim, hidden_dim, n_layers, horizon, **kwargs):
+        
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.h = horizon
+        self.device = device
+        self.lstm = nn.LSTM(input_dim, hidden_dim, n_layers, batch_first = True)
+        self.out = nn.Softplus(hidden_dim, horizon)
+    
+    def forward(self, x, **kwargs):
+        
+        if len(x.shape) == 1:
+            x = x[None, None, :]
+        
+        h = kwargs.get("h", torch.zeros(
+            self.n_layers, 
+            x.size(0),
+            self.hidden_dim))
+        c = kwargs.get("c", torch.zeros(
+            self.n_layers, 
+            x.size(0),
+            self.hidden_dim))
+            
+            
+        output, (h, c) = self.lstm(x, (h,c))
+        y_hat = self.out(output[:,-1,:])
+        return y_hat[:,-1], hn, cn
+
+
+def print_configs(*args):
+    
+    model_dict = dict(
+        "node": ["NEURAL ODE:",
+        "\t INPUTS:",
+        "\t\tf: neural network for ODE (nn.Sequential)",
+        "\t\thorizon: forecast horizon (int)",
+        "\t\tdevice: device for computing (torch.device)",
+        "\t KWARGS:",
+        "\t\tfrom_transfer: whether to load weights from old model (bool)",
+        "\t\ttransfer_path: path to old model weights (str/os.path)",
+        "\t\tNeual ODE kwargs: sensitivity, solver, rtol, atol"
+        ],
+        "lstm": ["LSTM:",
+        "\t INPUTS:",
+        "\t\tinput_dim: number of features (int)",
+        "\t\thidden_dim: size of hidden state (int)",
+        "\t\tn_layers: number of lstm layers (int)"
+        "\t\thorizon: forecast horizon (int)",
+        "\t\tdevice: device for computing (torch.device)"
+        "\t KWARGS:",
+        "\t\tfrom_transfer: whether to load weights from old model (bool)",
+        "\t\ttransfer_path: path to old model weights (str/os.path)"
+        ]
+    )
+    
+    if not args:
+        args = list(model_dict.keys())
+    
+    display = [m for a in args for m in model_dict[a]]
+    
+    print("\n".join(display))
