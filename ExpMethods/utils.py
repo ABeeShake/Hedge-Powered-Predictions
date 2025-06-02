@@ -15,9 +15,8 @@ def save_data(collection: Dict[str, np.ndarray], **kwargs):
     pd.DataFrame(collection).to_csv(path, index = False)
     
     return None
-   
-    
+
+
 def make_matrix(collection: Dict[str,np.ndarray]):
     
-    return np.hstack(tuple(collection.values()))
-
+    return np.stack(tuple(collection.values()), axis = 1)

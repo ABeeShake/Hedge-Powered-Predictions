@@ -5,20 +5,21 @@ import torch.optim as optim
 import lightning as L
 
 from torchdyn.core import NeuralODE
-from torchdyn.nn import DataControl, DepthCat
-from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from torchdyn.nn import DepthCat
 from ExpMethods.utils import *
 
 class NODEForecaster(L.LightningModule):
     
-    def __init__(self, model, horizon,**kwargs):
+    def __init__(self, model,**kwargs):
         
         from_transfer = kwargs.get("from_transfer", False)
         transfer_path = kwargs.get("transfer_path", None)
+        self.lr = kwargs.get("lr", 1e-3)
+        self.weight_decay = kwargs.get("weight_decay", 1e-1)
         
         super().__init__()
         self.model = model
-        self.t_span = torch.linspace(0,horizon, horizon+1)
+        self.t_span = torch.linspace(0,self.model.horizon, self.model.horizon+1)
         
         if from_transfer:
             
@@ -26,18 +27,16 @@ class NODEForecaster(L.LightningModule):
                 torch.load(
                     transfer_path, 
                     weights_only=True
-                    )
+                    ),
+                    strict = False
                     )
     
-    def configure_optimizers(self, **kwargs):
-        
-        lr = kwargs.get("lr", 1e-3)
-        weight_decay = kwargs.get("weight_decay", 1e-1)
+    def configure_optimizers(self):
         
         return torch.optim.Adam(
         self.model.parameters(),
-        lr = lr, 
-        weight_decay = weight_decay
+        lr = self.lr, 
+        weight_decay = self.weight_decay
         )
         
     def training_step(self, batch, batch_idx):
@@ -47,7 +46,7 @@ class NODEForecaster(L.LightningModule):
         if len(x.shape) == 1:
             x = x.unsqueeze(0)
         
-        y_hat = self.model(x,self.t_span)[1][-1,:,-1]
+        y_hat = self.model(x,self.t_span)[1][1:len(y)+1,:,-1]
         
         loss = torch.nn.functional.mse_loss(y,y_hat)
         
@@ -60,13 +59,31 @@ class NODEForecaster(L.LightningModule):
         
         return self.model(x, t_eval)
     
+    def predict(self, x):
+        
+        with torch.no_grad():
+            
+            return self.model(x, self.t_span)[1][-1,:,-1]
+    
 
 class NODE(nn.Module):
     
-    def __init__(self, f, horizon, **kwargs):
+    def __init__(self, input_dim, hidden_dim, output_dim, horizon, **kwargs):
         
         super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        f = nn.Sequential(
+            DepthCat(1),
+            nn.Linear(input_dim+1, hidden_dim),
+            nn.Tanh(),
+            DepthCat(1),
+            nn.Linear(hidden_dim + 1, output_dim),
+            nn.Softplus()
+        )
         self.model = NeuralODE(f,**kwargs)
+        self.horizon = horizon
         self.t_span = torch.linspace(0,horizon,horizon+1)
         
     def forward(self, x, *args):
@@ -83,126 +100,104 @@ class NODE(nn.Module):
 
 class LSTMForecaster(L.LightningModule):
     
-    def __init__(self, lstm, horizon, **kwargs):
+    def __init__(self, lstm, **kwargs):
         
         super().__init__()
         self.model = lstm
-        self.h = horizon
+        self.horizon = self.model.horizon
         
         from_transfer = kwargs.get("from_transfer", False)
         transfer_path = kwargs.get("transfer_path", None)
-        
+        self.lr = kwargs.get("lr", 1e-3)
+        self.weight_decay = kwargs.get("weight_decay", 1e-1)
+
         if from_transfer:
             
             self.model = self.model.load_state_dict(
                 torch.load(
                     transfer_path, 
                     weights_only=True
-                    )
+                    ),
+                    strict = False
                     )
         
     def forward(self, x, **kwargs):
-        
-        h0 = kwargs.get("h", torch.zeros(
-            self.model.n_layers, 
-            x.size(0),
-            self.model.hidden_dim))
-        c0 = kwargs.get("c", torch.zeros(
-            self.model.n_layers, 
-            x.size(0),
-            self.model.hidden_dim))
             
-        return self.model(x, h = h0, c = c0)
+        return self.model(x)
     
-    def configure_optimizers(self, **kwargs):
-        
-        lr = kwargs.get("lr", 1e-3)
-        weight_decay = kwargs.get("weight_decay", 1e-1)
-        
+    def configure_optimizers(self):
+    
         return torch.optim.SGD(
         self.model.parameters(),
-        lr = lr, 
-        weight_decay = weight_decay
+        lr = self.lr, 
+        weight_decay = self.weight_decay
         )
     
     def training_step(self, batch, batch_idx):
         
         x,y = batch
         
-        h = torch.zeros(
-            self.model.n_layers, 
-            x.size(0),
-            self.model.hidden_dim)
-            
-        c = torch.zeros(
-            self.model.n_layers, 
-            x.size(0),
-            self.model.hidden_dim)
+        y_hat = self.model(x) #b,h_test
         
-        y_hat, (h, c) = self.model(x, h=h, c=c)
-        
-        loss = nn.functional.mse_loss(y,y_hat)
+        loss = nn.functional.mse_loss(y,y_hat[:,:y.size(1)])
         
         self.log("loss", loss, prog_bar = True)
         return {"loss": loss}
     
+    def predict(self, x):
+        
+        with torch.no_grad():
+            
+            return self.model(x)[:,-1]
+
     
 class LSTM(nn.Module):
     
     def __init__(self, input_dim, hidden_dim, n_layers, horizon, **kwargs):
         
         super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
+        self.hidden_dim = hidden_dim + hidden_dim%2
         self.n_layers = n_layers
-        self.h = horizon
-        self.device = device
-        self.lstm = nn.LSTM(input_dim, hidden_dim, n_layers, batch_first = True)
-        self.out = nn.Softplus(hidden_dim, horizon)
+        self.horizon = horizon
+        self.in_layer = nn.Linear(input_dim, hidden_dim)
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim//2, n_layers, batch_first = True)
+        self.out_layer = nn.Sequential(
+            nn.Linear(hidden_dim//2, horizon),
+            nn.Softplus())
     
     def forward(self, x, **kwargs):
         
         if len(x.shape) == 1:
-            x = x[None, None, :]
+            x = x[None, None, :] # b,h_train,d
         
-        h = kwargs.get("h", torch.zeros(
-            self.n_layers, 
-            x.size(0),
-            self.hidden_dim))
-        c = kwargs.get("c", torch.zeros(
-            self.n_layers, 
-            x.size(0),
-            self.hidden_dim))
-            
-            
-        output, (h, c) = self.lstm(x, (h,c))
-        y_hat = self.out(output[:,-1,:])
-        return y_hat[:,-1], hn, cn
+        
+        lstm_in = self.in_layer(x)
+        lstm_out, _ = self.lstm(lstm_in) #b,h_train,hidden
+        y_hat = self.out_layer(lstm_out[:,-1,:]) #b,h_test
+        return y_hat
 
 
 def print_configs(*args):
     
     model_dict = dict(
-        "node": ["NEURAL ODE:",
+        node= ["NEURAL ODE:",
         "\t INPUTS:",
         "\t\tf: neural network for ODE (nn.Sequential)",
         "\t\thorizon: forecast horizon (int)",
-        "\t\tdevice: device for computing (torch.device)",
         "\t KWARGS:",
-        "\t\tfrom_transfer: whether to load weights from old model (bool)",
-        "\t\ttransfer_path: path to old model weights (str/os.path)",
+        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
+        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)",
         "\t\tNeual ODE kwargs: sensitivity, solver, rtol, atol"
         ],
-        "lstm": ["LSTM:",
+        lstm= ["LSTM:",
         "\t INPUTS:",
         "\t\tinput_dim: number of features (int)",
         "\t\thidden_dim: size of hidden state (int)",
         "\t\tn_layers: number of lstm layers (int)"
         "\t\thorizon: forecast horizon (int)",
-        "\t\tdevice: device for computing (torch.device)"
         "\t KWARGS:",
-        "\t\tfrom_transfer: whether to load weights from old model (bool)",
-        "\t\ttransfer_path: path to old model weights (str/os.path)"
+        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
+        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)"
         ]
     )
     

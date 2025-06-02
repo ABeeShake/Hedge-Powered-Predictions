@@ -7,7 +7,7 @@ from ExpMethods.utils import *
 
 def plot_forecasts(forecasts:Dict[str, np.ndarray],targets: [torch.Tensor, np.ndarray], **kwargs):
     
-    title = kwarg_parse(kwargs, "title", "Model Forecasts")
+    title = kwargs.get("title", "Model Forecasts")
     
     targets = to_np(targets).flatten()
     
@@ -31,8 +31,8 @@ def plot_forecasts(forecasts:Dict[str, np.ndarray],targets: [torch.Tensor, np.nd
 
 def plot_losses(losses:Dict[str, np.ndarray], **kwargs):
     
-    cumulative = kwarg_parse(kwargs, "cumulative", False)
-    title = kwarg_parse(kwargs, "title", "Model Losses")
+    cumulative = kwargs.get( "cumulative", False)
+    title = kwargs.get( "title", "Model Losses")
     
     t = np.arange(len(list(losses.values())[0]))
     
@@ -55,8 +55,8 @@ def plot_losses(losses:Dict[str, np.ndarray], **kwargs):
 
 def plot_regrets(regrets:Dict[str, np.ndarray], **kwargs):
     
-    cumulative = kwarg_parse(kwargs, "cumulative", False)
-    title = kwarg_parse(kwargs, "title", "Regrets")
+    cumulative = kwargs.get( "cumulative", False)
+    title = kwargs.get( "title", "Regrets")
     
     t = np.arange(len(list(regrets.values())[0]))
     
