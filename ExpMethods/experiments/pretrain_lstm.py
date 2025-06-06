@@ -11,19 +11,21 @@ import ExpMethods.data as data
 import ExpMethods.utils as utils
 
 from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint 
+from copy import deepcopy
 
 
 def main():
     
     args = get_args()
     
-    max_horizon = 30
-    max_batch_size = 32
-    max_epochs = 60
+    max_horizon = args.horizon
+    max_batch_size = args.batch
+    max_epochs = args.epochs
+    tol = args.tolerance
 
     callbacks = [
     ModelCheckpoint(save_top_k=1, mode="min", monitor="loss"),
-    EarlyStopping(monitor = "loss", mode = "min", stopping_threshold = 1)
+    EarlyStopping(monitor = "loss", mode = "min", stopping_threshold = tol)
     ]
 
     trainer_params = dict(
@@ -36,14 +38,15 @@ def main():
         log_every_n_steps = 1,
     #    auto_lr_find = True, #(chooses learning rate automatically (DEPRECATED))
         deterministic = True, #(reproducibility)
-    #    enable_progress_bar = False,
-    #    enable_model_summary = False
+        enable_progress_bar = False,
+        enable_model_summary = False
     )
     
     trainer = L.Trainer(**trainer_params)
+    existing_models = os.listdir(args.model_dir)
     
     max_mse = 1e7
-    best_model = None
+    best_model = os.path.join(args.model_dir,existing_models[-1]) if existing_models else None
     
     for i in range(len(os.listdir(args.data_dir))):
         
@@ -58,8 +61,6 @@ def main():
         n_layers = 1,
         horizon = max_horizon
         )
-        
-        from_transfer = bool(len(os.listdir(args.model_dir)))
 
         x_train = X[:N//2]
         x_test = X[N//2:]
@@ -73,27 +74,35 @@ def main():
             batch_size = max_batch_size,
             max_horizon = max_horizon)
         
-        lstm = m.LSTMForecaster(
-            m.LSTM(**lstm_params),
-            from_transfer = from_transfer,
-            transfer_path = best_model)
+        base_lstm = m.LSTM(**lstm_params)
+        
+        if existing_models and best_model:
+            
+            base_lstm.load_state_dict(
+                torch.load(best_model, weights_only = True),
+                strict = False)
+        
+        lstm = m.LSTMForecaster(base_lstm)
             
         
         trainer.fit(lstm, data_module)
         
         y_test = utils.to_np(x_test[:,-1])
-        y_hat_test = utils.to_np(lstm.predict(X[N//2 - max_horizon:N - h + 1]))
+        y_hat_test = utils.to_np(lstm.predict(X[N//2 - max_horizon:N - max_horizon]))
         test_mse = ((y_test - y_hat_test)**2).mean()
+        print(test_mse)
         
         if test_mse < max_mse:
             
             best_model = os.path.join(args.model_dir,f"{i}.pt")
-            torch.save(lstm.state_dict(), best_model)
+            torch.save(deepcopy(lstm.state_dict()), best_model)
+            existing_models = os.listdir(args.model_dir)
             max_mse = test_mse
-            
         
+        if max_mse <= tol:
+            return None
         
-
+    return None
 
 def load_df(path):
     
@@ -108,6 +117,11 @@ def get_args():
     
     parser.add_argument("data_dir")
     parser.add_argument("model_dir")
+    parser.add_argument("--epochs",type=int,default=50)
+    parser.add_argument("--batch",type=int,default=32)
+    parser.add_argument("--horizon",type=int,default=30)
+    parser.add_argument("--start",type=int,default=0)
+    parser.add_argument("--tolerance",type=int,default=100)
     
     args = parser.parse_args()
     return args
