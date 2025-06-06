@@ -169,6 +169,8 @@ class LSTM(nn.Module):
         
         if len(x.shape) == 1:
             x = x[None, None, :] # b,h_train,d
+        elif len(x.shape) == 2:
+            x = x[:,None,:]
         
         
         lstm_in = self.in_layer(x)

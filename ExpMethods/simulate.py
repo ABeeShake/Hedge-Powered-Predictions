@@ -64,13 +64,13 @@ def get_online_losses(forecasts, targets, start = None, horizon = None):
     
 
 
-class ExponentialWeightForecasts():
-    
-    def __init__(self, forecasts, losses):
-        
-        self.forecasts = forecasts
-        self.losses = losses
-        
-    def Hedge(self):
-        
-        
+# class ExponentialWeightForecasts():
+#     
+#     def __init__(self, forecasts, losses):
+#         
+#         self.forecasts = forecasts
+#         self.losses = losses
+#         
+#     def Hedge(self):
+#         
+#         
