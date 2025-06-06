@@ -20,16 +20,7 @@ class NODEForecaster(L.LightningModule):
         super().__init__()
         self.model = model
         self.t_span = torch.linspace(0,self.model.horizon, self.model.horizon+1)
-        
-        if from_transfer:
-            
-            self.model = self.model.load_state_dict(
-                torch.load(
-                    transfer_path, 
-                    weights_only=True
-                    ),
-                    strict = False
-                    )
+
     
     def configure_optimizers(self):
         
@@ -110,16 +101,6 @@ class LSTMForecaster(L.LightningModule):
         transfer_path = kwargs.get("transfer_path", None)
         self.lr = kwargs.get("lr", 1e-3)
         self.weight_decay = kwargs.get("weight_decay", 1e-1)
-
-        if from_transfer:
-            
-            self.model = self.model.load_state_dict(
-                torch.load(
-                    transfer_path, 
-                    weights_only=True
-                    ),
-                    strict = False
-                    )
         
     def forward(self, x, **kwargs):
             
