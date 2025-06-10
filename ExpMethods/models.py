@@ -34,10 +34,8 @@ class NODEForecaster(L.LightningModule):
         
         x,y = batch
         
-        if len(x.shape) == 1:
-            x = x.unsqueeze(0)
-        
-        y_hat = self.model(x,self.t_span)[1][1:len(y)+1,:,-1]
+        output = self.model(x,self.t_span)[1] #(h_test x b x d)
+        y_hat = output[:y.size(1),:,-1].T
         
         loss = torch.nn.functional.mse_loss(y,y_hat)
         
@@ -117,6 +115,8 @@ class LSTMForecaster(L.LightningModule):
     def training_step(self, batch, batch_idx):
         
         x,y = batch
+        #x: b, h_train, d
+        #y: b, h_train
         
         y_hat = self.model(x) #b,h_test
         

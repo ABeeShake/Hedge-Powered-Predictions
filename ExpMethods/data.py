@@ -8,7 +8,7 @@ from ExpMethods.utils import *
 
 def transform_minute_data(df:pd.DataFrame, **kwargs):
     
-    n_days = kwargs.get("n_days", 1)
+    n_days = kwargs.get("n_days", 0)
     return_type = kwargs.get("return_type",torch.Tensor)
     device = kwargs.get("device","cpu")
     
@@ -21,10 +21,9 @@ def transform_minute_data(df:pd.DataFrame, **kwargs):
          "White": 4})
     
     data["Timestamp"] = pd.to_datetime(data["Timestamp"])
-
-    days = data.Timestamp.dt.day.unique()
     
     if n_days > 0:
+        days = data.Timestamp.dt.day.unique()
         data = data.loc[data.Timestamp.dt.day.isin(days[n_days-1:n_days]),:]
     
     data.drop(["Unnamed: 0","Timestamp"], axis = 1, inplace = True)
