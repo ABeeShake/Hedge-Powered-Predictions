@@ -7,6 +7,7 @@ import lightning as L
 from torchdyn.core import NeuralODE
 from torchdyn.nn import DepthCat
 from ExpMethods.utils import *
+from ExpMethods.globals import GlobalValues
 
 class NODEForecaster(L.LightningModule):
     
@@ -159,34 +160,12 @@ class LSTM(nn.Module):
         y_hat = self.out_layer(lstm_out[:,-1,:]) #b,h_test
         return y_hat
 
+class DefaultModelParams:
+    
+    
 
-def print_configs(*args):
-    
-    model_dict = dict(
-        node= ["NEURAL ODE:",
-        "\t INPUTS:",
-        "\t\tf: neural network for ODE (nn.Sequential)",
-        "\t\thorizon: forecast horizon (int)",
-        "\t KWARGS:",
-        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
-        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)",
-        "\t\tNeual ODE kwargs: sensitivity, solver, rtol, atol"
-        ],
-        lstm= ["LSTM:",
-        "\t INPUTS:",
-        "\t\tinput_dim: number of features (int)",
-        "\t\thidden_dim: size of hidden state (int)",
-        "\t\tn_layers: number of lstm layers (int)"
-        "\t\thorizon: forecast horizon (int)",
-        "\t KWARGS:",
-        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
-        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)"
-        ]
-    )
-    
-    if not args:
-        args = list(model_dict.keys())
-    
-    display = [m for a in args for m in model_dict[a]]
-    
-    print("\n".join(display))
+    def node_params(**kwargs): 
+        return GlobalValues.node_params | kwargs   
+
+    def lstm_params(**kwargs): 
+        return GlobalValues.lstm_params | kwargs

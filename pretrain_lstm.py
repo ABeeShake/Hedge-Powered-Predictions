@@ -18,19 +18,15 @@ def main():
     
     args = get_args()
     
+    torch.set_float32_matmul_precision('high')
+    
     max_horizon = args.horizon
     max_batch_size = args.batch
     max_epochs = args.epochs
     tol = args.tolerance
 
-    callbacks = [
-    ModelCheckpoint(save_top_k=1, mode="min", monitor="loss"),
-    EarlyStopping(monitor = "loss", mode = "min", stopping_threshold = tol)
-    ]
-
     trainer_params = dict(
         max_epochs = max_epochs,
-    #    callbacks = callbacks, #(define callbacks)
     #    strategy = "ddp" #(use if multiple GPUs are available)
         accelerator = "auto",
         precision = "16", #(use mixed precision)
@@ -39,16 +35,27 @@ def main():
     #    auto_lr_find = True, #(chooses learning rate automatically (DEPRECATED))
         deterministic = True, #(reproducibility)
         enable_progress_bar = False,
-        enable_model_summary = False
+        enable_model_summary = False,
+        enable_checkpointing = False
     )
     
     trainer = L.Trainer(**trainer_params)
     existing_models = os.listdir(args.model_dir)
-    
-    max_mse = 1e7
+    existing_models.sort(
+        key=lambda x: os.path.getctime(
+            os.path.join(
+                args.model_dir, 
+                x
+                )
+                )
+                )
+                
+    max_mse = 1e10
     best_model = os.path.join(args.model_dir,existing_models[-1]) if existing_models else None
     
-    for i in range(len(os.listdir(args.data_dir))):
+    print(f"\nCURRENT MODEL WEIGHTS: {best_model}\n")
+    
+    for i in range(args.start,len(os.listdir(args.data_dir))):
         
         df = load_df(os.path.join(args.data_dir, f"pid{i}.csv"))
         X = torch.tensor(df.to_numpy()).to(torch.float32)
@@ -72,7 +79,8 @@ def main():
             train_df, 
             test_df,
             batch_size = max_batch_size,
-            max_horizon = max_horizon)
+            max_horizon = max_horizon,
+            num_workers = num_workers)
         
         base_lstm = m.LSTM(**lstm_params)
         
@@ -90,11 +98,11 @@ def main():
         y_test = utils.to_np(x_test[:,-1])
         y_hat_test = utils.to_np(lstm.predict(X[N//2 - max_horizon:N - max_horizon]))
         test_mse = ((y_test - y_hat_test)**2).mean()
-        print(test_mse)
+        print(f"\nTESTING MSE on PID {i} DATASET: {test_mse}\n")
         
         if test_mse < max_mse:
             
-            best_model = os.path.join(args.model_dir,f"{i}.pt")
+            best_model = os.path.join(args.model_dir,f"{i}_test{int(test_mse)}.pt")
             torch.save(deepcopy(lstm.state_dict()), best_model)
             existing_models = os.listdir(args.model_dir)
             max_mse = test_mse
@@ -115,8 +123,8 @@ def get_args():
         description = "Pretrain LSTM using similar dataset"
     )
     
-    parser.add_argument("data_dir")
-    parser.add_argument("model_dir")
+    parser.add_argument("--data_dir",type=str,default="")
+    parser.add_argument("--model_dir",type=str,default="./")
     parser.add_argument("--epochs",type=int,default=50)
     parser.add_argument("--batch",type=int,default=32)
     parser.add_argument("--horizon",type=int,default=30)

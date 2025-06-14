@@ -285,6 +285,7 @@ widgetsnbextension==4.0.14
     # via ipywidgets
 yarl==1.20.0
     # via aiohttp
+#ExpMethods @ git+ssh://git@github.com:ABeeShake/Hedge-Powered-Predictions.git
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

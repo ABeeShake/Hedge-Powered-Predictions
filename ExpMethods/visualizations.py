@@ -17,7 +17,7 @@ def plot_forecasts(forecasts:Dict[str, np.ndarray],targets: [torch.Tensor, np.nd
     t = np.arange(len(targets))
     
     plt.close("all")
-    plt.figure(figsize = (10,10))
+    plt.figure()
     plt.plot(t, targets, label = "truth", c = "black")
     
     for model in forecasts.keys():
@@ -51,7 +51,7 @@ def plot_losses(losses:Dict[str, np.ndarray], **kwargs):
     t = np.arange(len(list(losses.values())[0]))
     
     plt.close("all")
-    plt.figure(figsize = (10,10))
+    plt.figure()
     
     for model in losses.keys():
         
@@ -76,13 +76,15 @@ def plot_losses(losses:Dict[str, np.ndarray], **kwargs):
 
 def plot_regrets(regrets:Dict[str, np.ndarray], **kwargs):
     
-    cumulative = kwargs.get( "cumulative", False)
     title = kwargs.get( "title", "Regrets")
+    show = kwargs.get("show",False)
+    save = kwargs.get("save",True)
+    path = kwargs.get("path",None)
     
     t = np.arange(len(list(regrets.values())[0]))
     
     plt.close("all")
-    plt.figure(figsize = (10,10))
+    plt.figure()
     plt.plot(t, t, label = "Linear Regret", c = "black", linewidth = 3, linestyle = "--")
     
     for method in regrets.keys():
@@ -97,6 +99,11 @@ def plot_regrets(regrets:Dict[str, np.ndarray], **kwargs):
     plt.title(title)
     plt.xlabel("Time Elapsed (min)")
     plt.ylabel("Regret (mg/dL)")
-    plt.show()
+    if show:
+        plt.show()
+    if save:
+        if path is None:
+            raise ValueError("Must Supply Path to Save Image")
+        plt.savefig(path)
     
     return None
