@@ -109,6 +109,7 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
         self.b = kwargs.get("batch_size", 10)
         self.test_h = kwargs.get("max_horizon", 1)
         self.h_first = kwargs.get("h_first",True)
+        self.num_workers = kwargs.get("num_workers",511)
         
         if self.h_first:
             self.train_h = min(self.test_h, len(self.train) - 1)
@@ -151,7 +152,7 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
         torch.utils.data.DataLoader(
             self.train_dataset,
             batch_sampler = Sampler(**sampler_params),
-            num_workers = 511)
+            num_workers = self.num_workers)
             )
     def test_dataloader(self):
         
@@ -166,5 +167,5 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
         torch.utils.data.DataLoader(
             self.test_dataset,
             batch_sampler = Sampler(**sampler_params),
-            num_workers = 511)
+            num_workers = self.num_workers)
             )
