@@ -1,23 +1,25 @@
+import os
+import torch
+
 import numpy as np
 import pandas as pd
-import torch
 import lightning as L
 
 from ExpMethods.utils import *
+from torch.utils.data import Dataset, DataLoader
 
 def transform_minute_data(df:pd.DataFrame, **kwargs):
     
     n_days = kwargs.get("n_days", 0)
     return_type = kwargs.get("return_type",torch.Tensor)
-    device = kwargs.get("device","cpu")
     
     data = df.copy()
     
-    data["Race"] = data["Race"].map(
-        {"African American Black": 1,
-         "African American": 2,
-         "Hispanic/Latino": 3,
-         "White": 4})
+    # data["Race"] = data["Race"].map(
+    #     {"African American Black": 1,
+    #      "African American": 2,
+    #      "Hispanic/Latino": 3,
+    #      "White": 4})
     
     data["Timestamp"] = pd.to_datetime(data["Timestamp"])
     
@@ -25,17 +27,19 @@ def transform_minute_data(df:pd.DataFrame, **kwargs):
         days = data.Timestamp.dt.day.unique()
         data = data.loc[data.Timestamp.dt.day.isin(days[n_days-1:n_days]),:]
     
-    data.drop(["Unnamed: 0","Timestamp"], axis = 1, inplace = True)
+    #data.drop(["Unnamed: 0","Timestamp"], axis = 1, inplace = True)
     
     target_col = "Libre.GL" if "Libre.GL" in data.columns else "Dexcom.GL"
     
-    data.insert(data.shape[1]-1, target_col, data.pop(target_col))
+    output = data.loc[:,target_col]
+    
+    #data.insert(data.shape[1]-1, target_col, data.pop(target_col))
     
     if return_type == torch.Tensor:
     
-        return torch.tensor(data.to_numpy()).to(device).to(torch.float32)
+        return torch.tensor(output.to_numpy()).to(torch.float32)
     else:
-        return data
+        return output
     
 
 class Sampler():
@@ -69,9 +73,9 @@ class Sampler():
                     ).tolist()
                 )
         return iter(batches)
-        
+
     
-class DiabetesMinuteDataset(torch.utils.data.Dataset):
+class DiabetesMinuteDataset(Dataset):
     
     def __init__(self, data: pd.DataFrame, horizon = 1, transform = None):
 
@@ -148,7 +152,7 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
             )
         
         return (
-        torch.utils.data.DataLoader(
+        DataLoader(
             self.train_dataset,
             batch_sampler = Sampler(**sampler_params),
             num_workers = self.num_workers)
@@ -163,8 +167,121 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
             )
         
         return (
-        torch.utils.data.DataLoader(
+        DataLoader(
             self.test_dataset,
             batch_sampler = Sampler(**sampler_params),
             num_workers = self.num_workers)
             )
+
+
+class DiabetesDailyDataset(Dataset):
+    
+    def __init__(self, path, horizon = 1, transform = None):
+        
+        self.path = path
+        self.filenames = os.listdir(path)
+        self.transform = transform
+        self.h = horizon
+    
+    def __len__(self):
+        
+        return len(self.filenames)
+    
+    def __getitem__(self, idx):
+        
+        if idx >= self.__len__():
+            raise IndexError
+        
+        input_file = os.path.join(self.path,self.filenames[idx])
+        
+        data = torch.tensor(pd.read_csv(input_file, index_col = 0).to_numpy()).to(torch.float32)
+        
+        n,d = data.shape
+        
+        X = data[:n-self.h,-1]
+        y = data[self.h:,-1]
+        
+        sample = (X, y)
+        
+        if self.transform:
+            self.transform(sample)
+            
+        return sample
+
+
+class DailyDataLightningDataModule(L.LightningDataModule):
+    
+    def __init__(self, root, transform = None,**kwargs):
+        
+        super().__init__()
+        self.root = root
+        self.transform = transform
+        self.batch_size = kwargs.get("batch_size", 10)
+        self.h = kwargs.get("horizon", 1)
+        self.num_workers = kwargs.get("num_workers",511)
+    
+    def prepare_data(self):
+        pass
+        
+    def setup(self, stage = None):
+        
+        if stage == "fit" or stage is None:
+            
+            self.train_dataset = DiabetesDailyDataset(
+                path = os.path.join(self.root, "train"),
+                horizon = self.h,
+                transform = self.transform
+            )
+            
+            self.val_dataset = DiabetesDailyDataset(
+                path = os.path.join(self.root, "val"),
+                horizon = self.h,
+                transform = self.transform
+            )
+            
+        if stage == "test" or stage is None:
+            
+            self.test_dataset = DiabetesDailyDataset(
+                path = os.path.join(self.root, "test"),
+                horizon = self.h,
+                transform = self.transform
+                )
+    
+    def train_dataloader(self):
+        
+        return DataLoader(
+        self.train_dataset,
+        batch_size = self.batch_size,
+        shuffle = True,
+        num_workers = self.num_workers)
+
+    def val_dataloader(self):
+        
+        return DataLoader(
+        self.val_dataset,
+        batch_size = self.batch_size,
+        shuffle = True,
+        num_workers = self.num_workers)
+        
+    def test_dataloader(self):
+        
+        return DataLoader(
+        self.test_dataset,
+        batch_size = self.batch_size,
+        shuffle = True,
+        num_workers = self.num_workers,
+        collate_fn = self._collate_fn)
+            
+    
+    def _collate_fn(self,batch):
+        
+        #batch: list( tuple(X,y) )
+        
+        b = len(batch)
+        Xs, ys = zip(*batch)
+        
+        padded_Xs = torch.nn.utils.rnn.pad_sequence(Xs, batch_first = True, padding_value = torch.inf)
+        padded_ys = torch.nn.utils.rnn.pad_sequence(ys, batch_first = True, padding_value = torch.inf)
+
+        lengths = torch.isfinite(padded_ys).sum_to_size((b,1)).flatten()
+        

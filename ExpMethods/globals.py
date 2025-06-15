@@ -14,7 +14,8 @@ class GlobalValues:
         "--t_start":dict(type=int,default=20),
         "--tolerance":dict(type=int,default=100),
         "--horizon":dict(type=int,default=30),
-        "--debug":dict(type=bool,default=False)
+        "--debug":dict(type=bool,default=False),
+        "--n_workers":dict(type=int,default=511)
     }
 
     trainer_params = {
@@ -45,5 +46,3 @@ class GlobalValues:
         "start" : 20,
         "log_n_steps" : 20,
     }
-        
-    

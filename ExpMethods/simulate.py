@@ -23,6 +23,7 @@ def get_online_forecasts(models: dict, df: pd.DataFrame, trainer: L.Trainer, **k
     log_n_steps = kwargs.get("log_n_steps", None)
     output_dir = kwargs.get("output_dir","./")
     id_num = kwargs.get("id_num","000")
+    num_workers = kwargs.get("num_workers",511)
     
     forecasts = {k:np.zeros(len(df)) for k in models.keys()}
     
@@ -35,7 +36,8 @@ def get_online_forecasts(models: dict, df: pd.DataFrame, trainer: L.Trainer, **k
             x_test = df.iloc[t:,:],
             batch_size = b,
             max_horizon = h,
-            h_first = True
+            h_first = True,
+            num_workers = num_workers
         )
         
         data_module = data.MinuteDataLightningDataModule(**data_params)

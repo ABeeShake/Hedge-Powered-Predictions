@@ -8,6 +8,7 @@ from torchdyn.core import NeuralODE
 from torchdyn.nn import DepthCat
 from ExpMethods.utils import *
 from ExpMethods.globals import GlobalValues
+from torch.nn.utils.rnn import PackedSequence, pad_sequence, pack_padded_sequence, pad_packed_sequence, unpack_sequence
 
 class NODEForecaster(L.LightningModule):
     
@@ -24,12 +25,17 @@ class NODEForecaster(L.LightningModule):
 
     
     def configure_optimizers(self):
-        
         return torch.optim.Adam(
         self.model.parameters(),
         lr = self.lr, 
         weight_decay = self.weight_decay
         )
+
+
+    def forward(self, x, *args):
+        t_eval = args[0] if args else self.t_span
+        return self.model(x, t_eval)
+
         
     def training_step(self, batch, batch_idx):
         
@@ -42,34 +48,49 @@ class NODEForecaster(L.LightningModule):
         
         self.log("loss", loss, prog_bar = True)
         return {"loss":loss}
+
     
-    def forward(self, x, *args):
+    def validation_step(self, batch, batch_idx):
         
-        t_eval = args[0] if args else self.t_span
+        x,y = batch
         
-        return self.model(x, t_eval)
+        output = self.model(x,self.t_span)[1] #(h_test x b x d)
+        y_hat = output[:y.size(1),:,-1].T
+        
+        loss = torch.nn.functional.mse_loss(y,y_hat)
+        
+        self.log("val_loss", loss, prog_bar = True)
+
+
+    def test_step(self, batch, batch_idx):
+        
+        x,y = batch
+        
+        output = self.model(x,self.t_span)[1] #(h_test x b x d)
+        y_hat = output[:y.size(1),:,-1].T
+        
+        loss = torch.nn.functional.mse_loss(y,y_hat)
+        
+        self.log("test_loss", loss, prog_bar = True)
+
     
     def predict(self, x):
-        
         with torch.no_grad():
-            
             return self.model(x, self.t_span)[1][-1,:,-1]
     
 
 class NODE(nn.Module):
     
-    def __init__(self, input_dim, hidden_dim, output_dim, horizon, **kwargs):
+    def __init__(self, hidden_dim, horizon, **kwargs):
         
         super().__init__()
-        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
         f = nn.Sequential(
             DepthCat(1),
-            nn.Linear(input_dim+1, hidden_dim),
+            nn.Linear(1+1, hidden_dim),
             nn.Tanh(),
             DepthCat(1),
-            nn.Linear(hidden_dim + 1, output_dim),
+            nn.Linear(hidden_dim + 1, 1),
             nn.Softplus()
         )
         self.model = NeuralODE(f,**kwargs)
@@ -100,18 +121,19 @@ class LSTMForecaster(L.LightningModule):
         transfer_path = kwargs.get("transfer_path", None)
         self.lr = kwargs.get("lr", 1e-3)
         self.weight_decay = kwargs.get("weight_decay", 1e-1)
+
         
     def forward(self, x, **kwargs):
-            
         return self.model(x)
+
     
     def configure_optimizers(self):
-    
         return torch.optim.SGD(
         self.model.parameters(),
         lr = self.lr, 
         weight_decay = self.weight_decay
         )
+ 
     
     def training_step(self, batch, batch_idx):
         
@@ -125,43 +147,93 @@ class LSTMForecaster(L.LightningModule):
         
         self.log("loss", loss, prog_bar = True)
         return {"loss": loss}
+
+
+    def validation_step(self, batch, batch_idx):
+        
+        x,y = batch
+        #x: b, h_train, d
+        #y: b, h_train
+        
+        y_hat = self.model(x) #b,h_test
+        
+        loss = nn.functional.mse_loss(y,y_hat[:,:y.size(1)])
+        
+        self.log("val_loss", loss, prog_bar = True)
+ 
+ 
+    def test_step(self, batch, batch_idx):
+        
+        x,y = batch
+        #x: b, h_train, d
+        #y: b, h_train
+        
+        y_hat = self.model(x) #b,h_test
+        
+        loss = nn.functional.mse_loss(y,y_hat[:,:y.size(1)])
+        
+        self.log("test_loss", loss, prog_bar = True)
+   
     
     def predict(self, x):
-        
         with torch.no_grad():
-            
             return self.model(x)[:,-1]
 
     
 class LSTM(nn.Module):
     
-    def __init__(self, input_dim, hidden_dim, n_layers, horizon, **kwargs):
+    def __init__(self, hidden_dim, n_layers, horizon, **kwargs):
         
         super().__init__()
-        self.hidden_dim = hidden_dim + hidden_dim%2
+        self.hidden_dim = hidden_dim
         self.n_layers = n_layers
         self.horizon = horizon
-        self.in_layer = nn.Linear(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim//2, n_layers, batch_first = True)
+        self.lstm = nn.LSTM(1, self.hidden_dim, n_layers, batch_first = True)
         self.out_layer = nn.Sequential(
-            nn.Linear(hidden_dim//2, horizon),
+            nn.Linear(hidden_dim, horizon),
             nn.Softplus())
     
     def forward(self, x, **kwargs):
         
-        if len(x.shape) == 1:
-            x = x[None, None, :] # b,h_train,d
-        elif len(x.shape) == 2:
-            x = x[:,None,:]
+        if type(x) == PackedSequence:
         
+            def squash_packed(x,fn):
+                return PackedSequence(
+                fn(x.data), 
+                x.batch_sizes, 
+                x.sorted_indices, 
+                x.unsorted_indices)
+            
+            def get_last_packed(packed):
+                sum_batch_sizes = torch.cat((
+                    torch.zeros(2, dtype=torch.int64),
+                    torch.cumsum(packed.batch_sizes, 0)
+                ))
+                sorted_lengths = lengths[packed.sorted_indices]
+                last_seq_idxs = sum_batch_sizes[sorted_lengths] + torch.arange(lengths.size(0))
+                last_seq_items = packed.data[last_seq_idxs]
+                last_seq_items = last_seq_items[packed.unsorted_indices]
+            
+            lstm_out, _ = self.lstm(x)
+            last_out = get_last_packed(lstm_out)
+            y_packed = squash_packed(last_out, fn = self.out_layer)
+            
+            y_hat = unpack_sequence(y_packed)
         
-        lstm_in = self.in_layer(x)
-        lstm_out, _ = self.lstm(lstm_in) #b,h_train,hidden
-        y_hat = self.out_layer(lstm_out[:,-1,:]) #b,h_test
+        else:
+            
+            if len(x.shape) == 1:
+                x = x[None, None, :]
+            elif len(x.shape) == 2:
+                x = x[:, None, :]
+                
+            lstm_out, _ = self.lstm(x)
+            last_out = lstm_out[:,-1,:]
+            y_hat = self.out_layer(last_out)
+            
         return y_hat
 
 class DefaultModelParams:
-    
     
 
     def node_params(**kwargs): 
