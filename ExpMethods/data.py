@@ -79,19 +79,19 @@ class DiabetesMinuteDataset(Dataset):
     
     def __init__(self, data: pd.DataFrame, horizon = 1, transform = None):
 
-        self.df = data
+        self.data = data
         self.transform = transform
         self.h = horizon
     
     def __len__(self):
         
-        return len(self.df)
+        return len(self.data)
     
     def __getitem__(self, idx):
             
-        inputs = self.df.iloc[idx:idx+self.h,:].to_numpy("float32")
+        inputs = self.data[idx:idx+self.h].reshape((-1,1)).to(torch.float32)
         #input shape = (len(idx), time_length, n_features)
-        targets = self.df.iloc[idx + 1:idx + self.h + 1, -1].to_numpy().astype("float32")
+        targets = self.data[idx + 1:idx + self.h + 1, -1].to(torch.float32)
         
         sample = (inputs, targets)
         
@@ -198,7 +198,7 @@ class DiabetesDailyDataset(Dataset):
         
         n,d = data.shape
         
-        X = data[:n-self.h,-1]
+        X = data[:n-self.h,-1,None]
         y = data[self.h:,-1]
         
         sample = (X, y)
@@ -253,22 +253,24 @@ class DailyDataLightningDataModule(L.LightningDataModule):
         self.train_dataset,
         batch_size = self.batch_size,
         shuffle = True,
-        num_workers = self.num_workers)
+        num_workers = self.num_workers,
+        collate_fn = self._collate_fn)
 
     def val_dataloader(self):
         
         return DataLoader(
         self.val_dataset,
         batch_size = self.batch_size,
-        shuffle = True,
-        num_workers = self.num_workers)
+        shuffle = False,
+        num_workers = self.num_workers,
+        collate_fn = self._collate_fn)
         
     def test_dataloader(self):
         
         return DataLoader(
         self.test_dataset,
         batch_size = self.batch_size,
-        shuffle = True,
+        shuffle = False,
         num_workers = self.num_workers,
         collate_fn = self._collate_fn)
             
@@ -280,8 +282,7 @@ class DailyDataLightningDataModule(L.LightningDataModule):
         b = len(batch)
         Xs, ys = zip(*batch)
         
-        padded_Xs = torch.nn.utils.rnn.pad_sequence(Xs, batch_first = True, padding_value = torch.inf)
-        padded_ys = torch.nn.utils.rnn.pad_sequence(ys, batch_first = True, padding_value = torch.inf)
+        X = torch.cat(Xs, dim = 0)
+        y = torch.cat(ys, dim = 0)
 
-        lengths = torch.isfinite(padded_ys).sum_to_size((b,1)).flatten()
-        
+        return (X,y)

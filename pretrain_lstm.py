@@ -12,7 +12,6 @@ import ExpMethods.utils as utils
 import ExpMethods.simulate as sim
 
 from lightning.pytorch.callbacks import BatchSizeFinder,EarlyStopping,ModelCheckpoint, LearningRateFinder
-from copy import deepcopy
 from ExpMethods.globals import GlobalValues
 
 

@@ -9,31 +9,32 @@ import ExpMethods.data as data
 import ExpMethods.utils as utils
 
 from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint
-from copy import deepcopy
 from ExpMethods.globals import GlobalValues
 
 
-def get_online_forecasts(models: dict, df: pd.DataFrame, trainer: L.Trainer, **kwargs):
+def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kwargs):
     
     h = kwargs.get("max_horizon", 1)
     b = kwargs.get("max_batch_size", 10)
     start = kwargs.get("start", 20)
-    end = kwargs.get("end", len(df)-h)
+    end = kwargs.get("end", len(X)-h)
     max_epochs = kwargs.get("max_epochs", 1)
     log_n_steps = kwargs.get("log_n_steps", None)
     output_dir = kwargs.get("output_dir","./")
     id_num = kwargs.get("id_num","000")
     num_workers = kwargs.get("num_workers",511)
     
-    forecasts = {k:np.zeros(len(df)) for k in models.keys()}
+    forecasts = {k:np.zeros(len(X)) for k in models.keys()}
+    
+    logged_before = False
     
     for t in range(start, end):
-        x_train = df.iloc[:t,:]
-        x_test = df.iloc[t:,:]
+        x_train = X[:t]
+        x_test = X[t:]
         
         data_params = dict(
-            x_train = df.iloc[:t,:],
-            x_test = df.iloc[t:,:],
+            x_train = x_train,
+            x_test = x_test,
             batch_size = b,
             max_horizon = h,
             h_first = True,
@@ -46,7 +47,7 @@ def get_online_forecasts(models: dict, df: pd.DataFrame, trainer: L.Trainer, **k
             
             trainer.fit(models[model], data_module)
             
-            X_t = torch.tensor(x_train.iloc[-1].to_numpy("float32"))
+            X_t = x_train[-1]
             
             forecasts[model][t + h] = utils.to_np(models[model].predict(X_t)).item()
             
@@ -56,8 +57,14 @@ def get_online_forecasts(models: dict, df: pd.DataFrame, trainer: L.Trainer, **k
             
             output_csv = os.path.join(output_dir,f"forecasts/{id_num}_forecasts.csv")
             
-            header = os.path.exists(output_csv)
-            utils.save_data(forecasts, path = output_csv, mode = "a", header = header)
+            if not os.path.exists(output_csv) or not logged_before:
+                utils.save_data(forecasts, path = output_csv, mode = "a", header = True)
+            elif os.path.exists(output_csv) and not logged_before:
+                utils.save_data(forecasts, path = output_csv, mode = "w", header = True)
+            else: #exists and has been logged before
+                utils.save_data(forecasts, path = output_csv, mode = "a", header = False)
+            
+            logged_before = True
             
             for model in filter(lambda m: m.casefold() in GlobalValues.torch_models, models.keys()):
                 
@@ -88,6 +95,8 @@ def get_online_losses(forecasts, targets, **kwargs):
         
     l_mat = (f_mat - targets)**2
     
+    l_mat[:start+horizon] = 0
+    
     methods = forecasts.keys()
     
     losses = dict(zip(methods, l_mat.T))
@@ -95,18 +104,49 @@ def get_online_losses(forecasts, targets, **kwargs):
     return losses
     
 
+def weighted_forecasts_from_file(settings_path):
+    
+    settings = utils.load_sim_settings(settings_path)
+    
+    output_dir = settings.get("output_dir")
+    input_dir = settings.get("input_dir")
+    id_num = settings.get("id_num")
+    
+    forecast_path = os.path.join(output_dir, "forecasts",f"{id_num}_forecasts.csv")
+    targets_path = os.path.join(input_dir, f"CGMacros-{id_num}-clean.csv")
+    
+    forecasts = utils.load_results_from_csv(forecast_path)
+    targets = utils.load_targets_from_csv(targets_path)
+    
+    losses = get_online_losses(forecasts, targets, **settings)
+
+    utils.save_data(losses, os.path.join(output_dir, "losses",f"{id_num}_losses.csv"))
+    
+    return losses
+
+
 def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
     
     start = kwargs.get("start",None)
     end = kwargs.get("end",None)
+    from_file = kwargs.get("from_file",False)
+    
+    if from_file:
+        if isinstance(forecasts, str) and isinstance(losses, str) and isinstance(targets, str):
+            forecasts = utils.load_results_from_csv(forecasts)
+            losses = utils.load_results_from_csv(losses)
+            targets = utils.load_targets_from_csv(targets)
+        else:
+            raise ValueError("please provide forecasts,losses, and targets paths for from_file mode")
+        
     n_beta = 4
     
     if not start or not end:
         raise ValueError("Must Have Start and End Times")
     
     y = utils.to_np(targets)
-    f_mat = np.stack(tuple(forecasts.values()), axis = 1)
-    l_mat = np.stack(tuple(losses.values()), axis = 1)
+    f_mat = utils.make_matrix(forecasts)
+    l_mat = utils.make_matrix(losses)
     
     def replace_nans(arr):
         
@@ -200,7 +240,7 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
         #print(Delta.shape)
         
        # print(eta.shape)
-        eta = np.max((1, np.log(m))) / Delta
+        eta = np.where(Delta == 0, eta, np.max((1, np.log(m))) / Delta)
        # print(eta.shape)
         
         return Delta, eta
@@ -283,6 +323,30 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
     return forecast_dict, loss_dict
         
 
+def weighted_forecasts_from_file(settings_path):
+    
+    settings = utils.load_sim_settings(settings_path)
+    
+    output_dir = settings.get("output_dir")
+    input_dir = settings.get("input_dir")
+    id_num = settings.get("id_num")
+    
+    forecast_path = os.path.join(output_dir, "forecasts",f"{id_num}_forecasts.csv")
+    losses_path = os.path.join(output_dir, "losses",f"{id_num}_losses.csv")
+    targets_path = os.path.join(input_dir, f"CGMacros-{id_num}-clean.csv")
+    
+    forecasts = utils.load_results_from_csv(forecast_path)
+    losses = utils.load_results_from_csv(losses_path)
+    targets = utils.load_targets_from_csv(targets_path)
+    
+    exp_forecasts, exp_losses = get_weighted_foreacsts(forecasts, losses, targets, **settings)
+    
+    utils.save_data(exp_forecasts, os.path.join(output_dir, "forecasts",f"{id_num}_expforecasts.csv"))
+    utils.save_data(exp_losses, os.path.join(output_dir, "losses",f"{id_num}_explosses.csv"))
+    
+    return exp_forecasts, exp_losses
+
+
 def get_regrets(exp_losses, losses):
     
     l_mat = utils.make_matrix(losses) #T x n_methods
@@ -303,6 +367,26 @@ def get_regrets(exp_losses, losses):
     methods = exp_losses.keys()
     regrets = dict(zip(methods, R_mat.T))
         
+    return regrets
+
+
+def regrets_from_file(settings_path):
+    
+    settings = utils.load_sim_settings(settings_path)
+    
+    output_dir = settings.get("output_dir")
+    id_num = settings.get("id_num")
+    
+    forecast_path = os.path.join(output_dir, "forecasts",f"{id_num}_expforecasts.csv")
+    losses_path = os.path.join(output_dir, "losses",f"{id_num}_explosses.csv")
+    
+    exp_forecasts = utils.load_results_from_csv(forecast_path)
+    exp_losses = utils.load_results_from_csv(losses_path)
+    
+    regrets = get_regrets(forecasts, losses)
+    
+    utils.save_data(regrets, os.path.join(output_dir, "regrets",f"{id_num}_regrets.csv"))
+    
     return regrets
 
 

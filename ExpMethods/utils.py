@@ -2,17 +2,19 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import json
+import re
 
-from typing import Dict, Any
 from ExpMethods.globals import GlobalValues
 from glob import glob
+
 
 def to_np(array: [torch.Tensor,np.ndarray]):
     
     return array if isinstance(array, np.ndarray) else array.detach().cpu().numpy()
 
 
-def save_data(collection: Dict[str, np.ndarray], **kwargs):
+def save_data(collection, **kwargs):
     
     path = kwargs.get("path", None)
     mode = kwargs.get("mode", "w")
@@ -23,12 +25,12 @@ def save_data(collection: Dict[str, np.ndarray], **kwargs):
     return None
 
 
-def make_matrix(collection: Dict[str,np.ndarray]):
+def make_matrix(collection):
     
     return np.stack(tuple(collection.values()), axis = 1)
 
 
-def get_model_weights(model_dict: Dict[str, Any],**kwargs):
+def get_model_weights(model_dict,**kwargs):
     
     model_dir = kwargs.get("model_dir", "./")
     id_num = kwargs.get("id_num","000")
@@ -49,6 +51,28 @@ def get_model_weights(model_dict: Dict[str, Any],**kwargs):
             pt_dict[model] = os.path.join(dir,f"pretrained_{model_name}.pt")
         else:
             iteration_models = glob(os.path.join(dir,f"{id_num}*.pt"))
-            pt_dict[model] = iteration_models.sort(key = model_sort)[-1]
+            pt_dict[model] = sorted(iteration_models,key = model_sort)[-1]
         
     return pt_dict
+
+
+def load_results_from_csv(path, **kwargs):
+    
+    df = pd.read_csv(path, **kwargs)
+    return {col: df[col].to_numpy() for col in df.columns}
+
+
+def load_targets_from_csv(path, **kwargs):
+    
+    df = pd.read_csv(path, **kwargs)
+    return df.iloc[:,-1].to_numpy()
+
+
+def save_sim_settings(setting_dict, save_path):
+    with open(save_path, "w+") as fp:
+        json.dump(setting_dict, fp)
+
+def load_sim_settings(path):
+    with open(path, "r") as fp:
+        data = json.load(fp)
+    return data

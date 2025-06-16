@@ -1,11 +1,9 @@
 import os
-import sys
 import argparse
 import numpy as np
 import pandas as pd
 import torch
 import lightning as L
-import re
 
 import ExpMethods.models as m
 import ExpMethods.data as data
@@ -15,9 +13,7 @@ import ExpMethods.visualizations as viz
 
 from ExpMethods.globals import GlobalValues
 from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint 
-from copy import deepcopy
-from glob import glob
-    
+
 def main():
     
     args = get_args()
@@ -37,6 +33,11 @@ def main():
     trainer_params = sim.DefaultSimulationParams.trainer_params(max_epochs = max_epochs)
     
     trainer = L.Trainer(**trainer_params)
+    
+    dir_params = dict(
+        input_dir = args.input_dir,
+        output_dir = args.output_dir,
+        model_dir = args.model_dir)
  
     sim_params = sim.DefaultSimulationParams.sim_params(
         horizon = max_horizon,
@@ -56,10 +57,9 @@ def main():
         
         sim_params["id_num"] = id_num
         
-        df, X = get_data(args.input_dir +"/" + path)
+        X = get_data(args.input_dir +"/" + path)
         
         if args.debug:
-            df = df.iloc[:100,:] #DEBUGGING ONLY
             X = X[:100] #DEBUGGING ONLY
         
         targets = X[:,-1]
@@ -67,10 +67,13 @@ def main():
         t_end = len(X) - max_horizon
         
         sim_params["end"] = t_end
+        
+        save_path = os.path.join(args.output_dir, f"settings/{id_num}.json")
+        utils.save_sim_settings(sim_params | dir_params, save_path)
             
         models = get_model_dict(X, pt_dict, args)
     
-        forecasts = sim.get_online_forecasts(models, df, trainer, **sim_params)
+        forecasts = sim.get_online_forecasts(models, X, trainer, **sim_params)
         
         losses = sim.get_online_losses(forecasts, targets, **sim_params)
         
@@ -99,9 +102,9 @@ def get_data(path):
     
     df = data.transform_minute_data(raw_data, return_type = pd.DataFrame)
     
-    X = torch.tensor(df.to_numpy()).to(torch.float32)
+    X = torch.tensor(df.to_numpy()).to(torch.float32).reshape(-1,1)
     
-    return df, X
+    return X
 
 
 def save_to_png(forecasts,exp_forecasts, losses, exp_losses, regrets, targets, id_num, args):
@@ -153,11 +156,8 @@ def get_model_dict(X, pt_dict, args):
     n,d = X.shape
     
     node_params = m.DefaultModelParams.node_params(
-        input_dim = d, 
-        horizon = args.horizon,
-        output_dim = d)
+        horizon = args.horizon)
     lstm_params = m.DefaultModelParams.lstm_params(
-        input_dim = d, 
         horizon = args.horizon)
     
     base_node = m.NODE(**node_params)

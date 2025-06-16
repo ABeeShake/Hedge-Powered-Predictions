@@ -121,19 +121,18 @@ class LSTMForecaster(L.LightningModule):
         transfer_path = kwargs.get("transfer_path", None)
         self.lr = kwargs.get("lr", 1e-3)
         self.weight_decay = kwargs.get("weight_decay", 1e-1)
-
         
     def forward(self, x, **kwargs):
+            
         return self.model(x)
-
     
     def configure_optimizers(self):
+    
         return torch.optim.SGD(
         self.model.parameters(),
         lr = self.lr, 
         weight_decay = self.weight_decay
         )
- 
     
     def training_step(self, batch, batch_idx):
         
@@ -147,36 +146,11 @@ class LSTMForecaster(L.LightningModule):
         
         self.log("loss", loss, prog_bar = True)
         return {"loss": loss}
-
-
-    def validation_step(self, batch, batch_idx):
-        
-        x,y = batch
-        #x: b, h_train, d
-        #y: b, h_train
-        
-        y_hat = self.model(x) #b,h_test
-        
-        loss = nn.functional.mse_loss(y,y_hat[:,:y.size(1)])
-        
-        self.log("val_loss", loss, prog_bar = True)
- 
- 
-    def test_step(self, batch, batch_idx):
-        
-        x,y = batch
-        #x: b, h_train, d
-        #y: b, h_train
-        
-        y_hat = self.model(x) #b,h_test
-        
-        loss = nn.functional.mse_loss(y,y_hat[:,:y.size(1)])
-        
-        self.log("test_loss", loss, prog_bar = True)
-   
     
     def predict(self, x):
+        
         with torch.no_grad():
+            
             return self.model(x)[:,-1]
 
     
@@ -195,43 +169,15 @@ class LSTM(nn.Module):
     
     def forward(self, x, **kwargs):
         
-        if type(x) == PackedSequence:
+        if len(x.shape) == 1:
+            x = x[None, :, None] # b,h_train,d
+        elif len(x.shape) == 2:
+            x = x[:,:, None]
         
-            def squash_packed(x,fn):
-                return PackedSequence(
-                fn(x.data), 
-                x.batch_sizes, 
-                x.sorted_indices, 
-                x.unsorted_indices)
-            
-            def get_last_packed(packed):
-                sum_batch_sizes = torch.cat((
-                    torch.zeros(2, dtype=torch.int64),
-                    torch.cumsum(packed.batch_sizes, 0)
-                ))
-                sorted_lengths = lengths[packed.sorted_indices]
-                last_seq_idxs = sum_batch_sizes[sorted_lengths] + torch.arange(lengths.size(0))
-                last_seq_items = packed.data[last_seq_idxs]
-                last_seq_items = last_seq_items[packed.unsorted_indices]
-            
-            lstm_out, _ = self.lstm(x)
-            last_out = get_last_packed(lstm_out)
-            y_packed = squash_packed(last_out, fn = self.out_layer)
-            
-            y_hat = unpack_sequence(y_packed)
-        
-        else:
-            
-            if len(x.shape) == 1:
-                x = x[None, None, :]
-            elif len(x.shape) == 2:
-                x = x[:, None, :]
-                
-            lstm_out, _ = self.lstm(x)
-            last_out = lstm_out[:,-1,:]
-            y_hat = self.out_layer(last_out)
-            
+        lstm_out, _ = self.lstm(x) #b,h_train,hidden
+        y_hat = self.out_layer(lstm_out[:,-1,:]) #b,h_test
         return y_hat
+
 
 class DefaultModelParams:
     
@@ -241,3 +187,4 @@ class DefaultModelParams:
 
     def lstm_params(**kwargs): 
         return GlobalValues.lstm_params | kwargs
+
