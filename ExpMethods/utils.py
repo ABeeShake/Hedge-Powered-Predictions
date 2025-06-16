@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-import numpy as np
-import pandas as pd
-import torch
-from typing import *
-=======
 import os
 import numpy as np
 import pandas as pd
@@ -14,20 +8,12 @@ import re
 from ExpMethods.globals import GlobalValues
 from glob import glob
 
->>>>>>> jsb3
 
 def to_np(array: [torch.Tensor,np.ndarray]):
     
     return array if isinstance(array, np.ndarray) else array.detach().cpu().numpy()
 
 
-<<<<<<< HEAD
-def save_data(collection: Dict[str, np.ndarray], **kwargs):
-    
-    path = kwargs.get("path", None)
-    
-    pd.DataFrame(collection).to_csv(path, index = False)
-=======
 def save_data(collection, **kwargs):
     
     path = kwargs.get("path", None)
@@ -35,16 +21,10 @@ def save_data(collection, **kwargs):
     header = kwargs.get("header", True)
     
     pd.DataFrame(collection).to_csv(path, index = False, mode = mode, header = header)
->>>>>>> jsb3
     
     return None
 
 
-<<<<<<< HEAD
-def make_matrix(collection: Dict[str,np.ndarray]):
-    
-    return np.stack(tuple(collection.values()), axis = 1)
-=======
 def make_matrix(collection):
     
     return np.stack(tuple(collection.values()), axis = 1)
@@ -96,4 +76,3 @@ def load_sim_settings(path):
     with open(path, "r") as fp:
         data = json.load(fp)
     return data
->>>>>>> jsb3

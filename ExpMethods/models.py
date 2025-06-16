@@ -7,11 +7,8 @@ import lightning as L
 from torchdyn.core import NeuralODE
 from torchdyn.nn import DepthCat
 from ExpMethods.utils import *
-<<<<<<< HEAD
-=======
 from ExpMethods.globals import GlobalValues
 from torch.nn.utils.rnn import PackedSequence, pad_sequence, pack_padded_sequence, pad_packed_sequence, unpack_sequence
->>>>>>> jsb3
 
 class NODEForecaster(L.LightningModule):
     
@@ -28,24 +25,17 @@ class NODEForecaster(L.LightningModule):
 
     
     def configure_optimizers(self):
-<<<<<<< HEAD
-        
-=======
->>>>>>> jsb3
         return torch.optim.Adam(
         self.model.parameters(),
         lr = self.lr, 
         weight_decay = self.weight_decay
         )
-<<<<<<< HEAD
-=======
 
 
     def forward(self, x, *args):
         t_eval = args[0] if args else self.t_span
         return self.model(x, t_eval)
 
->>>>>>> jsb3
         
     def training_step(self, batch, batch_idx):
         
@@ -58,19 +48,6 @@ class NODEForecaster(L.LightningModule):
         
         self.log("loss", loss, prog_bar = True)
         return {"loss":loss}
-<<<<<<< HEAD
-    
-    def forward(self, x, *args):
-        
-        t_eval = args[0] if args else self.t_span
-        
-        return self.model(x, t_eval)
-    
-    def predict(self, x):
-        
-        with torch.no_grad():
-            
-=======
 
     
     def validation_step(self, batch, batch_idx):
@@ -99,26 +76,11 @@ class NODEForecaster(L.LightningModule):
     
     def predict(self, x):
         with torch.no_grad():
->>>>>>> jsb3
             return self.model(x, self.t_span)[1][-1,:,-1]
     
 
 class NODE(nn.Module):
     
-<<<<<<< HEAD
-    def __init__(self, input_dim, hidden_dim, output_dim, horizon, **kwargs):
-        
-        super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        f = nn.Sequential(
-            DepthCat(1),
-            nn.Linear(input_dim+1, hidden_dim),
-            nn.Tanh(),
-            DepthCat(1),
-            nn.Linear(hidden_dim + 1, output_dim),
-=======
     def __init__(self, hidden_dim, horizon, **kwargs):
         
         super().__init__()
@@ -129,7 +91,6 @@ class NODE(nn.Module):
             nn.Tanh(),
             DepthCat(1),
             nn.Linear(hidden_dim + 1, 1),
->>>>>>> jsb3
             nn.Softplus()
         )
         self.model = NeuralODE(f,**kwargs)
@@ -195,18 +156,6 @@ class LSTMForecaster(L.LightningModule):
     
 class LSTM(nn.Module):
     
-<<<<<<< HEAD
-    def __init__(self, input_dim, hidden_dim, n_layers, horizon, **kwargs):
-        
-        super().__init__()
-        self.hidden_dim = hidden_dim + hidden_dim%2
-        self.n_layers = n_layers
-        self.horizon = horizon
-        self.in_layer = nn.Linear(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim//2, n_layers, batch_first = True)
-        self.out_layer = nn.Sequential(
-            nn.Linear(hidden_dim//2, horizon),
-=======
     def __init__(self, hidden_dim, n_layers, horizon, **kwargs):
         
         super().__init__()
@@ -216,63 +165,20 @@ class LSTM(nn.Module):
         self.lstm = nn.LSTM(1, self.hidden_dim, n_layers, batch_first = True)
         self.out_layer = nn.Sequential(
             nn.Linear(hidden_dim, horizon),
->>>>>>> jsb3
             nn.Softplus())
     
     def forward(self, x, **kwargs):
         
         if len(x.shape) == 1:
-<<<<<<< HEAD
-            x = x[None, None, :] # b,h_train,d
-        elif len(x.shape) == 2:
-            x = x[:,None,:]
-        
-        
-        lstm_in = self.in_layer(x)
-        lstm_out, _ = self.lstm(lstm_in) #b,h_train,hidden
-=======
             x = x[None, :, None] # b,h_train,d
         elif len(x.shape) == 2:
             x = x[:,:, None]
         
         lstm_out, _ = self.lstm(x) #b,h_train,hidden
->>>>>>> jsb3
         y_hat = self.out_layer(lstm_out[:,-1,:]) #b,h_test
         return y_hat
 
 
-<<<<<<< HEAD
-def print_configs(*args):
-    
-    model_dict = dict(
-        node= ["NEURAL ODE:",
-        "\t INPUTS:",
-        "\t\tf: neural network for ODE (nn.Sequential)",
-        "\t\thorizon: forecast horizon (int)",
-        "\t KWARGS:",
-        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
-        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)",
-        "\t\tNeual ODE kwargs: sensitivity, solver, rtol, atol"
-        ],
-        lstm= ["LSTM:",
-        "\t INPUTS:",
-        "\t\tinput_dim: number of features (int)",
-        "\t\thidden_dim: size of hidden state (int)",
-        "\t\tn_layers: number of lstm layers (int)"
-        "\t\thorizon: forecast horizon (int)",
-        "\t KWARGS:",
-        "\t\tFORECASTER|from_transfer: whether to load weights from old model (bool)",
-        "\t\tFORECASTER|transfer_path: path to old model weights (str/os.path)"
-        ]
-    )
-    
-    if not args:
-        args = list(model_dict.keys())
-    
-    display = [m for a in args for m in model_dict[a]]
-    
-    print("\n".join(display))
-=======
 class DefaultModelParams:
     
 
@@ -282,4 +188,3 @@ class DefaultModelParams:
     def lstm_params(**kwargs): 
         return GlobalValues.lstm_params | kwargs
 
->>>>>>> jsb3

@@ -1,17 +1,17 @@
 #!/bin/bash
 
-cd ~/Simulation-Scripts/Hedge-Powered-Predictions
+cd ~/Hedge-Powered-Predictions
 
-source hedge-env/bin/activate
+source ../hedge-env/bin/activate
 
 #pip install -r ../requirements.txt
 
 python ./experiment1_horizons.py \
---input_dir ../minute_data/ \
---model_dir ../span_test/ \
---output_dir ../span_test/ \
---epochs 2 \
---horizon 5 \
---debug True \
+--input_dir ../Data/input-data/minute-data/ \
+--model_dir ../Data/output-data/span_test/ \
+--output_dir ../Data/output-data/span_test/ \
+--epochs 10 \
+--horizon 30 \
+--debug False \
 
 deactivate

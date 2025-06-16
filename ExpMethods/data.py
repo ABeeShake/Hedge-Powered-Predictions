@@ -1,12 +1,3 @@
-<<<<<<< HEAD
-import numpy as np
-import pandas as pd
-import torch
-import lightning as L
-
-from typing import *
-from ExpMethods.utils import *
-=======
 import os
 import torch
 
@@ -16,23 +7,11 @@ import lightning as L
 
 from ExpMethods.utils import *
 from torch.utils.data import Dataset, DataLoader
->>>>>>> jsb3
 
 def transform_minute_data(df:pd.DataFrame, **kwargs):
     
     n_days = kwargs.get("n_days", 0)
     return_type = kwargs.get("return_type",torch.Tensor)
-<<<<<<< HEAD
-    device = kwargs.get("device","cpu")
-    
-    data = df.copy()
-    
-    data["Race"] = data["Race"].map(
-        {"African American Black": 1,
-         "African American": 2,
-         "Hispanic/Latino": 3,
-         "White": 4})
-=======
     
     data = df.copy()
     
@@ -41,7 +20,6 @@ def transform_minute_data(df:pd.DataFrame, **kwargs):
     #      "African American": 2,
     #      "Hispanic/Latino": 3,
     #      "White": 4})
->>>>>>> jsb3
     
     data["Timestamp"] = pd.to_datetime(data["Timestamp"])
     
@@ -49,19 +27,6 @@ def transform_minute_data(df:pd.DataFrame, **kwargs):
         days = data.Timestamp.dt.day.unique()
         data = data.loc[data.Timestamp.dt.day.isin(days[n_days-1:n_days]),:]
     
-<<<<<<< HEAD
-    data.drop(["Unnamed: 0","Timestamp"], axis = 1, inplace = True)
-    
-    target_col = "Libre.GL" if "Libre.GL" in data.columns else "Dexcom.GL"
-    
-    data.insert(data.shape[1]-1, target_col, data.pop(target_col))
-    
-    if return_type == torch.Tensor:
-    
-        return torch.tensor(data.to_numpy()).to(device).to(torch.float32)
-    else:
-        return data
-=======
     #data.drop(["Unnamed: 0","Timestamp"], axis = 1, inplace = True)
     
     target_col = "Libre.GL" if "Libre.GL" in data.columns else "Dexcom.GL"
@@ -75,7 +40,6 @@ def transform_minute_data(df:pd.DataFrame, **kwargs):
         return torch.tensor(output.to_numpy()).to(torch.float32)
     else:
         return output
->>>>>>> jsb3
     
 
 class Sampler():
@@ -109,15 +73,6 @@ class Sampler():
                     ).tolist()
                 )
         return iter(batches)
-<<<<<<< HEAD
-        
-    
-class DiabetesMinuteDataset(torch.utils.data.Dataset):
-    
-    def __init__(self, data: pd.DataFrame, horizon = 1, transform = None):
-
-        self.df = data
-=======
 
     
 class DiabetesMinuteDataset(Dataset):
@@ -125,21 +80,11 @@ class DiabetesMinuteDataset(Dataset):
     def __init__(self, data: pd.DataFrame, horizon = 1, transform = None):
 
         self.data = data
->>>>>>> jsb3
         self.transform = transform
         self.h = horizon
     
     def __len__(self):
         
-<<<<<<< HEAD
-        return len(self.df)
-    
-    def __getitem__(self, idx):
-            
-        inputs = self.df.iloc[idx:idx+self.h,:].to_numpy("float32")
-        #input shape = (len(idx), time_length, n_features)
-        targets = self.df.iloc[idx + 1:idx + self.h + 1, -1].to_numpy().astype("float32")
-=======
         return len(self.data)
     
     def __getitem__(self, idx):
@@ -147,7 +92,6 @@ class DiabetesMinuteDataset(Dataset):
         inputs = self.data[idx:idx+self.h].reshape((-1,1)).to(torch.float32)
         #input shape = (len(idx), time_length, n_features)
         targets = self.data[idx + 1:idx + self.h + 1, -1].to(torch.float32)
->>>>>>> jsb3
         
         sample = (inputs, targets)
         
@@ -208,11 +152,7 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
             )
         
         return (
-<<<<<<< HEAD
-        torch.utils.data.DataLoader(
-=======
         DataLoader(
->>>>>>> jsb3
             self.train_dataset,
             batch_sampler = Sampler(**sampler_params),
             num_workers = self.num_workers)
@@ -227,17 +167,11 @@ class MinuteDataLightningDataModule(L.LightningDataModule):
             )
         
         return (
-<<<<<<< HEAD
-        torch.utils.data.DataLoader(
-=======
         DataLoader(
->>>>>>> jsb3
             self.test_dataset,
             batch_sampler = Sampler(**sampler_params),
             num_workers = self.num_workers)
             )
-<<<<<<< HEAD
-=======
 
 
 class DiabetesDailyDataset(Dataset):
@@ -352,4 +286,3 @@ class DailyDataLightningDataModule(L.LightningDataModule):
         y = torch.cat(ys, dim = 0)
 
         return (X,y)
->>>>>>> jsb3
