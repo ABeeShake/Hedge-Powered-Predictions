@@ -65,7 +65,7 @@ def load_results_from_csv(path, **kwargs):
 def load_targets_from_csv(path, **kwargs):
     
     df = pd.read_csv(path, **kwargs)
-    return df.iloc[:,-1].to_numpy()
+    return df["Libre.GL" if "Libre.GL" in df.columns else "Dexcom.GL"].to_numpy()
 
 
 def save_sim_settings(setting_dict, save_path):

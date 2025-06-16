@@ -43,7 +43,8 @@ def main():
         horizon = max_horizon,
         batch_size = max_batch_size,
         epochs = max_epochs,
-        output_dir = args.output_dir)
+        output_dir = args.output_dir,
+        num_workers = args.n_workers)
     
    
     for path in os.listdir(args.input_dir):
