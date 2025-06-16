@@ -104,23 +104,25 @@ def get_online_losses(forecasts, targets, **kwargs):
     return losses
     
 
-def weighted_forecasts_from_file(settings_path):
+def losses_from_file(settings_path):
     
     settings = utils.load_sim_settings(settings_path)
     
     output_dir = settings.get("output_dir")
     input_dir = settings.get("input_dir")
     id_num = settings.get("id_num")
+    end = settings.get("end")
+    horizon = settings.get("horizon")
     
     forecast_path = os.path.join(output_dir, "forecasts",f"{id_num}_forecasts.csv")
     targets_path = os.path.join(input_dir, f"CGMacros-{id_num}-clean.csv")
     
     forecasts = utils.load_results_from_csv(forecast_path)
-    targets = utils.load_targets_from_csv(targets_path)
+    targets = utils.load_targets_from_csv(targets_path)[:end+horizon]
     
     losses = get_online_losses(forecasts, targets, **settings)
 
-    utils.save_data(losses, os.path.join(output_dir, "losses",f"{id_num}_losses.csv"))
+    utils.save_data(losses, path = os.path.join(output_dir, "losses",f"{id_num}_losses.csv"))
     
     return losses
 
@@ -148,6 +150,8 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
     f_mat = utils.make_matrix(forecasts)
     l_mat = utils.make_matrix(losses)
     
+    l_mat = l_mat / l_mat.max() #just for testing
+    
     def replace_nans(arr):
         
         return np.where(np.isnan(arr),0,arr)
@@ -173,7 +177,7 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
         
         l = l.reshape(-1,1)
         
-        h = (W * J) @ l
+        h = W @ l
         
         return h #n_beta x 1
  
@@ -222,20 +226,34 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
         Delta = Delta.reshape(-1,1)
         
         # print(f"eta:{eta}")
-        # print(f"l:{l}")
+        #print(f"l:{l}")
+        #input()
         # print(f"h:{h}")
-        # print(f"l-h:{l-h}")
+        #print(f"l-h:{l-h}")
+        #input()
+        #print(f"h + J* (l-h):{(h + J * (l - h))}")
+        #input()
+        #print(f"-eta*(h + J* (l-h)):{-eta*(h + J * (l - h))}")
+        #input()
+        #print(f"np.exp(-eta * (h + J * (l - h))) w/ NA:{np.exp(-eta * (h + J * (l - h)))}")
+        #input()
+        #print(f"np.exp(-eta * (h + J * (l - h))) w/o NA:{np.exp(replace_nans(-eta * (h + J * (l - h))))}")
+        #input()
         # print(f"W:{W}")
         
         
         M_tilde = W * np.exp(replace_nans(-eta * (h + J * (l - h)))) #n_beta x m
         
         #print(f"M_tilde:{M_tilde}")
+        #input()
         
         M = replace_nans(-(1/eta) * np.log(np.sum(M_tilde,axis = 1)).reshape(-1,1)) # n_beta x 1
+        #print(f"M:{replace_nans(-(1/eta) * np.log(np.sum(M_tilde,axis = 1)).reshape(-1,1))}")
+        #input()
         
         #print(Delta.shape)
-        delta = h - M
+        delta = np.abs(h - M)
+        #print(f"delta: {delta}")
         Delta = Delta + delta
         #print(Delta.shape)
         
@@ -279,42 +297,58 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
     Wt = np.ones((n_beta, m))
     beta = np.zeros((n_beta, 1, T))
     Delta = np.zeros(n_beta)
-    eta = np.ones(n_beta) * 1000
+    eta = np.ones(n_beta) * 10
     
     exp_forecasts = np.zeros((T,n_beta))
     exp_losses = np.zeros((T,n_beta))
     
     for t in range(start, end):
+        f = f_mat[t]
+        l = l_mat[t]
+        #print(f"l:{l}")
+        if (l == 0).all():
+            continue
+        
+        #print(f"t = {t}")
+        #input()
         
         Wt = Wt / Wt.sum(axis=1).reshape(-1,1)
         #print(f"Wt:{Wt}")
+        #input()
         
         alpha = 1 / (t - start + 2)
         
         beta = get_beta(t,T,start,alpha)
         #print(f"beta:{beta}")
-        
-        f = f_mat[t]
-        l = l_mat[t]
+        #input()
         
         J = get_Jt(Wt)
+        #print(f"J:{J}")
+        #input()
         
         exp_forecasts[t,:] = J @ f
         
         h = get_ht(Wt, J, l)
+        #print(f"h:{h}")
+        #input()
         
         exp_losses[t,:] = J @ l
         
         W_tilde = loss_update(Wt,J,l,h, eta)
         #print(f"W_tilde:{W_tilde}")
+        #input()
         W[:,t,:] = W_tilde
         
         Wt = mix_update(beta, W)
         #print(f"Wt @ beta:{Wt}")
-        
-        #print(eta)
+        #input()
         
         Delta,eta = eta_update(Wt, J, l, h, Delta, eta)
+        #print(f"Delta:{Delta}")
+        #input()
+        #print(f"eta:{eta}")
+        #input()
+        
 
     methods = ["Hedge","FS (Start)", "FS (Uniform)", "FS (Decay)"]
     forecast_dict = dict(zip(methods, exp_forecasts.T))
@@ -339,10 +373,10 @@ def weighted_forecasts_from_file(settings_path):
     losses = utils.load_results_from_csv(losses_path)
     targets = utils.load_targets_from_csv(targets_path)
     
-    exp_forecasts, exp_losses = get_weighted_foreacsts(forecasts, losses, targets, **settings)
+    exp_forecasts, exp_losses = get_weighted_forecasts(forecasts, losses, targets, **settings)
     
-    utils.save_data(exp_forecasts, os.path.join(output_dir, "forecasts",f"{id_num}_expforecasts.csv"))
-    utils.save_data(exp_losses, os.path.join(output_dir, "losses",f"{id_num}_explosses.csv"))
+    utils.save_data(exp_forecasts, path = os.path.join(output_dir, "forecasts",f"{id_num}_expforecasts.csv"))
+    utils.save_data(exp_losses, path = os.path.join(output_dir, "losses",f"{id_num}_explosses.csv"))
     
     return exp_forecasts, exp_losses
 
@@ -385,7 +419,7 @@ def regrets_from_file(settings_path):
     
     regrets = get_regrets(forecasts, losses)
     
-    utils.save_data(regrets, os.path.join(output_dir, "regrets",f"{id_num}_regrets.csv"))
+    utils.save_data(regrets, path = os.path.join(output_dir, "regrets",f"{id_num}_regrets.csv"))
     
     return regrets
 

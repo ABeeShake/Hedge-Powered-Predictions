@@ -44,7 +44,11 @@ def main():
         batch_size = max_batch_size,
         epochs = max_epochs,
         output_dir = args.output_dir,
+<<<<<<< HEAD
         num_workers = args.n_workers,)
+=======
+        num_workers = args.n_workers)
+>>>>>>> origin/jsb3
     
    
     for path in os.listdir(args.input_dir):

@@ -45,7 +45,7 @@ def get_model_weights(model_dict,**kwargs):
         
         dir = os.path.join(model_dir,f"{model_name}")
         
-        if not (os.path.exists(dir) or glob(os.path.join(dir,"*.pt"))):
+        if not (os.path.exists(dir) or len(glob(os.path.join(dir,"*.pt")))):
             pt_dict[model] = None
         elif not glob(os.path.join(dir,f"{id_num}*.pt")):
             pt_dict[model] = os.path.join(dir,f"pretrained_{model_name}.pt")
@@ -65,7 +65,7 @@ def load_results_from_csv(path, **kwargs):
 def load_targets_from_csv(path, **kwargs):
     
     df = pd.read_csv(path, **kwargs)
-    return df.iloc[:,-1].to_numpy()
+    return df["Libre.GL" if "Libre.GL" in df.columns else "Dexcom.GL"].to_numpy()
 
 
 def save_sim_settings(setting_dict, save_path):
