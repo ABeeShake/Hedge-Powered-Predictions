@@ -42,7 +42,7 @@ def get_model_weights(model_dict,**kwargs):
     for model in filter(lambda m: m.casefold() in GlobalValues.torch_models, model_dict.keys()):
         
         model_name = model.casefold()
-        print(model_name)
+        #print(model_name)
         
         dir = os.path.join(model_dir,f"{model_name}")
         
@@ -50,8 +50,8 @@ def get_model_weights(model_dict,**kwargs):
         pretrained_model = glob(os.path.join(dir,f"pretrained_{model_name}.pt"))
         current_models = glob(os.path.join(dir,f"{id_num}*.pt"))
         
-        print(not dir_exists or (not current_models and not pretrained_model))
-        print(not current_models and pretrained_model)
+        #print(not dir_exists or (not current_models and not pretrained_model))
+        #print(not current_models and pretrained_model)
         
         if not dir_exists or (not current_models and not pretrained_model):
             pt_dict[model] = None
