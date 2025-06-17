@@ -50,21 +50,20 @@ def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kw
             X_t = x_train[-1]
             
             forecasts[model][t + h] = utils.to_np(models[model].predict(X_t)).item()
-            
-        if log_n_steps and (t - start) % log_n_steps == 0:
+        
+        if log_n_steps and t != start and not ((t-start) % log_n_steps) or t == end:
             
             os.makedirs(os.path.join(output_dir,"forecasts"), exist_ok = True)
             
             output_csv = os.path.join(output_dir,f"forecasts/{id_num}_forecasts.csv")
             
-            if not os.path.exists(output_csv) or not logged_before:
-                utils.save_data(forecasts, path = output_csv, mode = "a", header = True)
-            elif os.path.exists(output_csv) and not logged_before:
-                utils.save_data(forecasts, path = output_csv, mode = "w", header = True)
-            else: #exists and has been logged before
-                utils.save_data(forecasts, path = output_csv, mode = "a", header = False)
+            start_idx = t+h - log_n_steps if os.path.exists(output_csv) else 0
+            current_rows = {k:v[start_idx:t+h] for k,v in forecasts.items()}
             
-            logged_before = True
+            if not os.path.exists(output_csv):
+                utils.save_data(current_rows, path = output_csv, mode = "w", header = True)
+            else: #exists and has been logged before
+                utils.save_data(current_rows, path = output_csv, mode = "a", header = False)
             
             for model in filter(lambda m: m.casefold() in GlobalValues.torch_models, models.keys()):
                 

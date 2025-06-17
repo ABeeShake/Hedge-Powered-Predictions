@@ -80,6 +80,9 @@ def main():
         
         t_end = len(X) - max_horizon
         
+        if sim_params["start"] >= t_end:
+            continue
+        
         sim_params["end"] = t_end
         
         save_path = os.path.join(args.output_dir, f"settings/{id_num}.json")
