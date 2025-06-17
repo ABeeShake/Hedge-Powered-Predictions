@@ -49,9 +49,9 @@ def main():
     max_mse = 1e7
     best_model = os.path.join(args.model_dir,existing_models[-1]) if existing_models else None
     
-    for i in range(len(os.listdir(args.data_dir))):
+    for i in range(len(os.listdir(args.input_dir))):
         
-        df = load_df(os.path.join(args.data_dir, f"pid{i}.csv"))
+        df = load_df(os.path.join(args.input_dir, f"pid{i}.csv"))
         X = torch.tensor(df.to_numpy()).to(torch.float32)
         
         N, d = X.shape
