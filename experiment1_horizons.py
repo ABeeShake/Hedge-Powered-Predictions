@@ -56,29 +56,59 @@ def main():
    
     for path in glob(os.path.join(args.input_dir,"*.csv")):
         
+        #print(f"path:{path}")
+        #input()
+        
         id_num = os.path.basename(path)[os.path.basename(path).find("-") + 1: os.path.basename(path).find("-") + 4]
         
+        #print(f"id_num:{id_num}")
+        #input()
+        
         existing_forecasts = os.path.join(args.output_dir, "forecasts", f"{id_num}_forecasts.csv")
+        
+        #print(f"existing forecasts: {existing_forecasts}")
+        #input()
         
         if os.path.exists(existing_forecasts):
             with open(existing_forecasts,"rb") as f:
                 sim_params["start"] = sum(1 for _ in f)
+        else:
+            sim_params["start"] = GlobalValues.sim_params.get("start")
+        
+        #print(f"start:{sim_params['start']}")
+        #input()
         
         pt_dict = utils.get_model_weights(
             base_model_dict,
             model_dir = args.model_dir,
             id_num = id_num)
         
+        #print(f"pt dict: {pt_dict}")
+        #input()
+        
         sim_params["id_num"] = id_num
         
         X = get_data(path)
+        
+        #print(f"len(X) before debug check:{len(X)}")
+        #input()
+        
+        #print(f"debug flag: {args.debug}")
+        #print(f"debug flag type: {type(args.debug)}")
+        #input()
         
         if args.debug:
             X = X[:100] #DEBUGGING ONLY
         
         targets = X[:,-1]
         
+        #print(f"len(X):{len(X)}")
+        #input()
+        
         t_end = len(X) - max_horizon
+        
+        #print(f"end:{t_end}")
+        #input()
         
         if sim_params["start"] >= t_end:
             continue
