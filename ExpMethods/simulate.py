@@ -12,6 +12,16 @@ from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint
 from ExpMethods.globals import GlobalValues
 
 
+def sim_step(model, data_module, trainer, x_train):
+    
+    if model.type == "torch":
+        trainer.fit(model, data_module)
+        X_t = x_train[-1]
+        return utils.to_np(model.predict(X_t)).item()    
+    elif model.type == "nixtla":
+        return model.forecast(x_train)
+    
+
 def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kwargs):
     
     h = kwargs.get("max_horizon", 1)
@@ -44,13 +54,8 @@ def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kw
         data_module = data.MinuteDataLightningDataModule(**data_params)
         
         for model in models.keys():
-            
-            trainer.fit(models[model], data_module)
-            
-            X_t = x_train[-1]
-            
-            forecasts[model][t + h] = utils.to_np(models[model].predict(X_t)).item()
-        
+            forecasts[model][t + h] = sim_step(models[model], data_module, trainer,x_train)
+
         if log_n_steps and t != start and not ((t-start) % log_n_steps) or t == end:
             
             os.makedirs(os.path.join(output_dir,"forecasts"), exist_ok = True)
@@ -65,15 +70,17 @@ def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kw
             else: #exists and has been logged before
                 utils.save_data(current_rows, path = output_csv, mode = "a", header = False)
             
-            for model in filter(lambda m: m.casefold() in GlobalValues.torch_models, models.keys()):
+            for model in models.keys():
                 
-                model_name = model.casefold()
+                if models[model].type == "torch":
                 
-                os.makedirs(os.path.join(output_dir,f"{model_name}"), exist_ok = True)
+                    model_name = model.casefold()
                 
-                output_model = os.path.join(output_dir,f"{model_name}/{id_num}_{model_name}_iteration{t}.pt")
+                    os.makedirs(os.path.join(output_dir,f"{model_name}"), exist_ok = True)
                 
-                torch.save(models[model].state_dict(), output_model)
+                    output_model = os.path.join(output_dir,f"{model_name}/{id_num}_{model_name}_iteration{t}.pt")
+                
+                    torch.save(models[model].state_dict(), output_model)
             
     return forecasts
 
