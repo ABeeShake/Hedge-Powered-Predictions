@@ -8,7 +8,7 @@ from torchdyn.core import NeuralODE
 from torchdyn.nn import DepthCat
 from ExpMethods.utils import *
 from ExpMethods.globals import GlobalValues
-from torch.nn.utils.rnn import PackedSequence, pad_sequence, pack_padded_sequence, pad_packed_sequence, unpack_sequence
+from transformers import TimeSeriesTransformerForPrediction, TimeSeriesTransformerConfig, AutoformerConfig, AutoformerForPrediction
 
 class NODEForecaster(L.LightningModule):
     
@@ -22,7 +22,8 @@ class NODEForecaster(L.LightningModule):
         super().__init__()
         self.model = model
         self.t_span = torch.linspace(0,self.model.horizon, self.model.horizon+1)
-
+        
+        self.type = "torch"
     
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -77,7 +78,11 @@ class NODEForecaster(L.LightningModule):
     def predict(self, x):
         with torch.no_grad():
             return self.model(x, self.t_span)[1][-1,:,-1]
-    
+        
+        
+    def save(self,path):
+        torch.save(self.model.state_dict(), path)
+
 
 class NODE(nn.Module):
     
@@ -122,6 +127,8 @@ class LSTMForecaster(L.LightningModule):
         self.lr = kwargs.get("lr", 1e-3)
         self.weight_decay = kwargs.get("weight_decay", 1e-1)
         
+        self.type = "torch" 
+        
     def forward(self, x, **kwargs):
             
         return self.model(x)
@@ -153,6 +160,9 @@ class LSTMForecaster(L.LightningModule):
             
             return self.model(x)[:,-1]
 
+    def save(self,path):
+        torch.save(self.model.state_dict(), path)
+
     
 class LSTM(nn.Module):
     
@@ -179,6 +189,31 @@ class LSTM(nn.Module):
         return y_hat
 
 
+# class Autoformer(nn.Module):
+#     
+#     def __init__(self, horizon, pretrain_weights):
+#         
+#         super().__init__()
+#         self.config = AutoformerConfig(prediction_length = horizon)
+#         self.type = "torch"
+        
+
+class StatsForecaster():
+    
+    def __init__(self, model, horizon):
+        
+        self.type = "nixtla"
+        self.model = model()
+        self.h = horizon
+        
+    def forecast(self, x_train):
+        
+        y = to_np(x_train).flatten()
+        
+        forecasts = self.model.forecast(y = y, h = self.h)
+        return forecasts["mean"][-1]
+    
+    
 class DefaultModelParams:
     
 

@@ -37,7 +37,13 @@ ehthumbs.db
 Thumbs.db
 
 # Python Folders #
-##########################
+##################
 lightning_logs/
 hedge-env/
 __pycache__/
+
+# Pytorch Models #
+##################
+*.ckpt
+*.pt
+*.pth

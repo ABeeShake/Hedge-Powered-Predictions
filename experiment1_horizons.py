@@ -11,6 +11,7 @@ import ExpMethods.utils as utils
 import ExpMethods.simulate as sim
 import ExpMethods.visualizations as viz
 
+from glob import glob
 from ExpMethods.globals import GlobalValues
 from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint 
 
@@ -28,8 +29,6 @@ def main():
     tol = args.tolerance
     t_start = args.t_start
     
-    model_dict = {"NODE":None,"LSTM":None}
-    
     trainer_params = sim.DefaultSimulationParams.trainer_params(max_epochs = max_epochs)
     
     trainer = L.Trainer(**trainer_params)
@@ -44,25 +43,35 @@ def main():
         batch_size = max_batch_size,
         epochs = max_epochs,
         output_dir = args.output_dir,
-<<<<<<< HEAD
-        num_workers = args.n_workers,)
-=======
         num_workers = args.n_workers)
->>>>>>> origin/jsb3
-    
-   
-    for path in os.listdir(args.input_dir):
+
+    node_params = m.DefaultModelParams.node_params(
+        horizon = max_horizon)
+    lstm_params = m.DefaultModelParams.lstm_params(
+        horizon = max_horizon)
         
-        id_num = path[path.find("-") + 1: path.find("-") + 4]
+    base_model_dict = {
+        "NODE":m.NODE(**node_params),
+        "LSTM":m.LSTM(**lstm_params)}
+   
+    for path in glob(os.path.join(args.input_dir,"*.csv")):
+        
+        id_num = os.path.basename(path)[os.path.basename(path).find("-") + 1: os.path.basename(path).find("-") + 4]
+        
+        existing_forecasts = os.path.join(args.output_dir, "forecasts", f"{id_num}_forecasts.csv")
+        
+        if os.path.exists(existing_forecasts):
+            with open(existing_forecasts,"rb") as f:
+                sim_params["start"] = sum(1 for _ in f)
         
         pt_dict = utils.get_model_weights(
-            model_dict,
+            base_model_dict,
             model_dir = args.model_dir,
             id_num = id_num)
         
         sim_params["id_num"] = id_num
         
-        X = get_data(args.input_dir +"/" + path)
+        X = get_data(path)
         
         if args.debug:
             X = X[:100] #DEBUGGING ONLY
@@ -71,12 +80,15 @@ def main():
         
         t_end = len(X) - max_horizon
         
+        if sim_params["start"] >= t_end:
+            continue
+        
         sim_params["end"] = t_end
         
         save_path = os.path.join(args.output_dir, f"settings/{id_num}.json")
         utils.save_sim_settings(sim_params | dir_params, save_path)
             
-        models = get_model_dict(X, pt_dict, args)
+        models = get_model_dict(base_model_dict, pt_dict, args)
     
         forecasts = sim.get_online_forecasts(models, X, trainer, **sim_params)
         
@@ -105,11 +117,9 @@ def get_data(path):
     
     raw_data = pd.read_csv(path)
     
-    df = data.transform_minute_data(raw_data, return_type = pd.DataFrame)
+    X = data.transform_minute_data(raw_data)
     
-    X = torch.tensor(df.to_numpy()).to(torch.float32).reshape(-1,1)
-    
-    return X
+    return X.reshape(-1,1)
 
 
 def save_to_png(forecasts,exp_forecasts, losses, exp_losses, regrets, targets, id_num, args):
@@ -156,35 +166,22 @@ def save_to_csv(full_forecasts, full_losses, regrets,id_num, args):
     return None
 
    
-def get_model_dict(X, pt_dict, args):
+def get_model_dict(base_model_dict, pt_dict, args):
+        
+    model_dict = dict()
     
-    n,d = X.shape
-    
-    node_params = m.DefaultModelParams.node_params(
-        horizon = args.horizon)
-    lstm_params = m.DefaultModelParams.lstm_params(
-        horizon = args.horizon)
-    
-    base_node = m.NODE(**node_params)
-    base_lstm = m.LSTM(**lstm_params)
-    
-    model_dict = dict(
-        NODE = base_node,
-        LSTM = base_lstm
-    )
-    
-    for model in model_dict.keys():
+    for model in base_model_dict.keys():
         weights = pt_dict.get(model)
         
         if weights is not None:
             
-            model_dict[model].load_state_dict(
+            base_model_dict[model].load_state_dict(
                 torch.load(weights, weights_only = True),
                 strict = False
             )
             
-    model_dict["NODE"] = m.NODEForecaster(model_dict["NODE"])
-    model_dict["LSTM"] = m.LSTMForecaster(model_dict["LSTM"])
+    model_dict["NODE"] = m.NODEForecaster(base_model_dict["NODE"])
+    model_dict["LSTM"] = m.LSTMForecaster(base_model_dict["LSTM"])
             
     return model_dict
 

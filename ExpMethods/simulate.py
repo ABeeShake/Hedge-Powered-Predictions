@@ -12,6 +12,16 @@ from lightning.pytorch.callbacks import EarlyStopping,ModelCheckpoint
 from ExpMethods.globals import GlobalValues
 
 
+def sim_step(model, data_module, trainer, x_train):
+    
+    if model.type == "torch":
+        trainer.fit(model, data_module)
+        X_t = x_train[-1]
+        return utils.to_np(model.predict(X_t)).item()    
+    elif model.type == "nixtla":
+        return model.forecast(x_train)
+    
+
 def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kwargs):
     
     h = kwargs.get("max_horizon", 1)
@@ -44,37 +54,33 @@ def get_online_forecasts(models: dict, X: pd.DataFrame, trainer: L.Trainer, **kw
         data_module = data.MinuteDataLightningDataModule(**data_params)
         
         for model in models.keys():
-            
-            trainer.fit(models[model], data_module)
-            
-            X_t = x_train[-1]
-            
-            forecasts[model][t + h] = utils.to_np(models[model].predict(X_t)).item()
-            
-        if log_n_steps and (t - start) % log_n_steps == 0:
+            forecasts[model][t + h] = sim_step(models[model], data_module, trainer,x_train)
+
+        if log_n_steps and t != start and not ((t-start) % log_n_steps) or t == end:
             
             os.makedirs(os.path.join(output_dir,"forecasts"), exist_ok = True)
             
             output_csv = os.path.join(output_dir,f"forecasts/{id_num}_forecasts.csv")
             
-            if not os.path.exists(output_csv) or not logged_before:
-                utils.save_data(forecasts, path = output_csv, mode = "a", header = True)
-            elif os.path.exists(output_csv) and not logged_before:
-                utils.save_data(forecasts, path = output_csv, mode = "w", header = True)
+            start_idx = t+h - log_n_steps if os.path.exists(output_csv) else 0
+            current_rows = {k:v[start_idx:t+h] for k,v in forecasts.items()}
+            
+            if not os.path.exists(output_csv):
+                utils.save_data(current_rows, path = output_csv, mode = "w", header = True)
             else: #exists and has been logged before
-                utils.save_data(forecasts, path = output_csv, mode = "a", header = False)
+                utils.save_data(current_rows, path = output_csv, mode = "a", header = False)
             
-            logged_before = True
-            
-            for model in filter(lambda m: m.casefold() in GlobalValues.torch_models, models.keys()):
+            for model in models.keys():
                 
-                model_name = model.casefold()
+                if models[model].type == "torch":
                 
-                os.makedirs(os.path.join(output_dir,f"{model_name}"), exist_ok = True)
+                    model_name = model.casefold()
                 
-                output_model = os.path.join(output_dir,f"{model_name}/{id_num}_{model_name}_iteration{t}.pt")
+                    os.makedirs(os.path.join(output_dir,f"{model_name}"), exist_ok = True)
                 
-                torch.save(models[model].state_dict(), output_model)
+                    output_model = os.path.join(output_dir,f"{model_name}/{id_num}_{model_name}_iteration{t}.pt")
+                
+                    torch.save(models[model].state_dict(), output_model)
             
     return forecasts
 
@@ -149,8 +155,9 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
     y = utils.to_np(targets)
     f_mat = utils.make_matrix(forecasts)
     l_mat = utils.make_matrix(losses)
+    maxL = l_mat.max()
     
-    l_mat = l_mat / l_mat.max() #just for testing
+    l_mat = l_mat / matL #just for testing
     
     def replace_nans(arr):
         
@@ -352,7 +359,7 @@ def get_weighted_forecasts(forecasts, losses, targets, **kwargs):
 
     methods = ["Hedge","FS (Start)", "FS (Uniform)", "FS (Decay)"]
     forecast_dict = dict(zip(methods, exp_forecasts.T))
-    loss_dict = dict(zip(methods, exp_losses.T))
+    loss_dict = dict(zip(methods, maxL*exp_losses.T))
     
     return forecast_dict, loss_dict
         

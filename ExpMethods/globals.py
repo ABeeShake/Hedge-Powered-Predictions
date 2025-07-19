@@ -14,14 +14,14 @@ class GlobalValues:
         "--t_start":dict(type=int,default=20),
         "--tolerance":dict(type=int,default=100),
         "--horizon":dict(type=int,default=30),
-        "--debug":dict(type=bool,default=False),
+        "--debug":dict(action="store_true"),
         "--n_workers":dict(type=int,default=511)
     }
 
     trainer_params = {
     #    "strategy" : "ddp" #(use if multiple GPUs are available)
         "accelerator" : "auto",
-        "precision" : "16", #(use mixed precision)
+        "precision" : "16-mixed", #(use mixed precision)
         "devices" : 1,
         "log_every_n_steps" : 1,
     #    "auto_lr_find" : True, #(chooses learning rate automatically (DEPRECATED))
